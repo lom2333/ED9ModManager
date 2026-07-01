@@ -56,7 +56,3 @@ ED9ModManager/
 - [KuroTools](https://github.com/nnguyen259/KuroTools)(MIT)
 
 详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
-
-## 许可
-
-> 待补：请在开源前添加 `LICENSE` 文件并选择许可协议（第三方库各自的许可见 `THIRD_PARTY_NOTICES.md`）。
