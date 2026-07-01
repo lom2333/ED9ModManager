@@ -12,7 +12,7 @@
 |---|---|---|
 | **ED9Loader**（注入框架） | `xinput1_4.dll` | 类 BepInEx 的原生插件加载器：劫持 `xinput1_4` 入口，向插件暴露 `Ed9Api`（MinHook inline hook、配置 ini、按 RTTI 定位 vtable/实例、安全读写、控制台命令注册）。 |
 | **ED9ModManager**（管理器 GUI） | `ED9ModManager.exe` | Dear ImGui + DX11 图形界面：Mod 加载顺序与冲突可视化、资源自动合并（TBL / scene bjson / dat 脚本），并内置 **TBL⇄JSON**、**DAT⇄JSON** 双向转换页。 |
-| **modkit**（合并引擎） | 静态链接进上面两者 | `#TBL` 表 codec（schema 驱动读写/合并）、FPAC 读取、bjson 场景解码/patch、scene/dat 注入、mod 合并编排。附离线测试 `modkit_test`。 |
+| **modkit**（合并引擎） | 静态链接进上面两者 | `#TBL` 表 codec（schema 驱动读写/合并）、FPAC 读取、bjson 场景解码/patch、scene/dat 注入、mod 合并编排。 |
 | **ed9_dat**（脚本引擎） | vendored 于 `ed9_dat/` | `#scp` dat 脚本的解析/组装引擎，供管理器 DAT⇄JSON 页复用。 |
 | **示例插件** | `plugins/*.dll` | `SceneRedirect`（资源重定向不覆盖原文件）、`ScriptInject`（额外加载独立脚本 dat / 进图加载怪物表）、`PlayerPosGet`、`BattleProbe`、`EventStarter`、`SceneProbe`。 |
 
