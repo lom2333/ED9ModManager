@@ -1,0 +1,4 @@
+LIBRARY xinput1_4
+EXPORTS
+    XInputGetState=SoraXInputGetState @2
+    XInputSetState=SoraXInputSetState @3

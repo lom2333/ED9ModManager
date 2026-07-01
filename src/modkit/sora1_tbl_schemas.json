@@ -1,0 +1,2113 @@
+{
+ "AchievementTableData": {
+  "96": {
+   "achievement_category": "uint",
+   "achievement_id": "uint",
+   "achievement_objective_1": "uint",
+   "achievement_objective_param_1": "uint",
+   "long1": "long",
+   "arr1": "u32array",
+   "short1": "short",
+   "short2": "short",
+   "int1": "int",
+   "int2": "int",
+   "long2": "long",
+   "long3": "long",
+   "flag1": "toffset",
+   "name": "toffset",
+   "achievement_name": "toffset",
+   "achievement_description": "toffset"
+  }
+ },
+ "AchievementCategoryData": {
+  "16": {
+   "category_id": "ulong",
+   "category_name": "toffset"
+  }
+ },
+ "PlayRecordData": {
+  "40": {
+   "achievement_category": "long",
+   "tag": "toffset",
+   "name": "toffset",
+   "achieved_goal": "toffset",
+   "todo_goal": "toffset"
+  }
+ },
+ "ActiveVoiceTableData": {
+  "128": {
+   "id": "ulong",
+   "char_ids": "u16array",
+   "empty1": "uint",
+   "filename": "toffset",
+   "type_id": "long",
+   "tag": "toffset",
+   "array2": "u16array",
+   "empty2": "uint",
+   "array3": "u16array",
+   "empty3": "uint",
+   "array4": "u16array",
+   "empty4": "uint",
+   "array5": "u32array",
+   "empty5": "uint",
+   "dialogue": "toffset",
+   "unknown": "long"
+  }
+ },
+ "AniParam": {
+  "40": {
+   "chr_key": "toffset",
+   "flags_08": "uint",
+   "float_0C": "float",
+   "float_10": "float",
+   "blend_speed": "float",
+   "float_18": "float",
+   "float_1C": "float",
+   "float_20": "float",
+   "flags_24": "uint"
+  }
+ },
+ "BGMTableData": {
+  "24": {
+   "id": "long",
+   "ref_name": "toffset",
+   "float": "float",
+   "int": "uint"
+  }
+ },
+ "MapBGM": {
+  "48": {
+   "scene_id": "long",
+   "enable_flags": "u16array",
+   "empty1": "uint",
+   "disable_flags": "u16array",
+   "map_bgm": "int",
+   "float1": "float",
+   "empty2": "uint"
+  }
+ },
+ "BattleBGM": {
+  "56": {
+   "id": "long",
+   "enable_flags": "u16array",
+   "empty1": "int",
+   "disable_flags": "u16array",
+   "int1": "int",
+   "action_bgm": "int",
+   "command_bgm": "int",
+   "pinch_bgm": "int",
+   "empty2": "int"
+  }
+ },
+ "BooksTitle": {
+  "24": {
+   "id": "short",
+   "int1": "int",
+   "empty1": "short",
+   "title": "toffset",
+   "short1": "ushort",
+   "short2": "ushort",
+   "empty2": "int"
+  }
+ },
+ "BooksText": {
+  "24": {
+   "book_id": "short",
+   "line_id": "int",
+   "empty1": "short",
+   "book_text": "toffset",
+   "texture": "toffset"
+  }
+ },
+ "BooksCategory": {
+  "24": {
+   "id": "long",
+   "category_name": "toffset",
+   "unused": "toffset"
+  }
+ },
+ "BreakObjectTableData": {
+  "56": {
+   "map_name": "toffset",
+   "object_name": "toffset",
+   "break_effect_ref": "ulong",
+   "drop_table_ref": "ulong",
+   "drop_flags": "uint",
+   "durability": "ushort",
+   "lottery_group": "ushort",
+   "se_ref": "ulong",
+   "vfx_ref": "ulong"
+  }
+ },
+ "WeedingTableData": {
+  "32": {
+   "map_name": "toffset",
+   "object_name": "toffset",
+   "script_name": "toffset",
+   "respawn_seconds": "ushort",
+   "item_group": "ushort",
+   "drop_flags": "uint"
+  }
+ },
+ "BTResultTable": {
+  "52": {
+   "param_00": "uint",
+   "param_04": "uint",
+   "param_08": "uint",
+   "param_0C": "uint",
+   "param_10": "uint",
+   "param_14": "uint",
+   "param_18": "uint",
+   "param_1C": "uint",
+   "param_20": "uint",
+   "param_24": "uint",
+   "param_28": "uint",
+   "param_2C": "uint",
+   "param_30": "uint"
+  }
+ },
+ "BTLVoiceTable": {
+  "88": {
+   "int1": "int",
+   "short1": "ushort",
+   "short2": "ushort",
+   "short3": "ushort",
+   "short4": "ushort",
+   "int2": "int",
+   "array1": "u16array",
+   "empty1": "int",
+   "array2": "u16array",
+   "empty2": "int",
+   "array3": "u32array",
+   "empty3": "int",
+   "ref_name": "toffset",
+   "array4": "u8array",
+   "empty4": "int"
+  }
+ },
+ "ATBonusParam": {
+  "40": {
+   "id": "ubyte",
+   "reference_id": "ubyte",
+   "int1": "int",
+   "short1": "ushort",
+   "code": "toffset",
+   "int2": "int",
+   "int3": "int",
+   "int4": "int",
+   "int5": "int",
+   "at_bonus_name": "toffset"
+  }
+ },
+ "ATBonusSet": {
+  "20": {
+   "id": "uint",
+   "player_or_foe_value": "ubyte",
+   "general_at_bonus_chance": "ubyte",
+   "hp_heal_s_bonus_chance": "ubyte",
+   "ep_heal_s_bonus_chance": "ubyte",
+   "cp_heal_s_bonus_chance": "ubyte",
+   "hp_heal_l_bonus_chance": "ubyte",
+   "ep_heal_l_bonus_chance": "ubyte",
+   "cp_heal_l_bonus_chance": "ubyte",
+   "critical_bonus_chance": "ubyte",
+   "unknown_bonus_chance_1": "ubyte",
+   "unknown_bonus_chance_2": "ubyte",
+   "unknown_bonus_chance_3": "ubyte",
+   "mystery_bonus_chance": "ubyte",
+   "unused_byte_1": "ubyte",
+   "unused_byte_2": "ubyte",
+   "unused_byte_3": "ubyte"
+  }
+ },
+ "BattleLevelField": {
+  "16": {
+   "difficulty_id": "uint",
+   "player_damage_multiplier": "uint",
+   "enemy_damage_multiplier": "uint",
+   "player_stun_damage_multiplier": "float"
+  }
+ },
+ "BattleLevelTurn": {
+  "28": {
+   "difficulty_id": "uint",
+   "player_damage_multiplier": "uint",
+   "enemy_damage_multiplier": "uint",
+   "hp_or_unknown_multi_1": "uint",
+   "hp_or_unknown_multi_2": "uint",
+   "enemy_spd_multiplier": "uint",
+   "int1": "uint"
+  }
+ },
+ "BattleEnemyLevelStatusAdjust": {
+  "20": {
+   "difficulty_id": "ushort",
+   "level": "ushort",
+   "hp_multi": "int",
+   "str_multi": "int",
+   "ats_multi": "int",
+   "spd_multi": "int"
+  }
+ },
+ "BattleEnemyDamageAdjust": {
+  "8": {
+   "level": "int",
+   "ratio": "int"
+  }
+ },
+ "BattleEnemyLevelAdjust": {
+  "16": {
+   "monster": "toffset",
+   "int1": "int",
+   "int2": "int"
+  }
+ },
+ "BattleSCraftDamageRatio": {
+  "4": {
+   "Ratio_1": "short",
+   "Ratio_2": "short"
+  }
+ },
+ "TacticalBonus": {
+  "16": {
+   "id": "uint",
+   "byte1": "ubyte",
+   "byte2": "ubyte",
+   "empty1": "short",
+   "name": "toffset"
+  }
+ },
+ "ChapterParam": {
+  "88": {
+   "id": "uint",
+   "int1": "int",
+   "int2": "int",
+   "int3": "int",
+   "code": "toffset",
+   "name": "toffset",
+   "name2": "toffset",
+   "name3": "toffset",
+   "empty1": "toffset",
+   "long": "long",
+   "arr": "u32array",
+   "int4": "int",
+   "empty2": "toffset"
+  }
+ },
+ "ChrDataParam": {
+  "64": {
+   "chr_id": "uint",
+   "scale_x": "float",
+   "scale_y": "float",
+   "camera_distance": "float",
+   "float_10": "float",
+   "float_14": "float",
+   "face_scale": "float",
+   "face_distance": "float",
+   "popup_offset_x": "float",
+   "popup_offset_y": "float",
+   "byte_28": "ubyte",
+   "byte_29": "ubyte",
+   "byte_2A": "ubyte",
+   "byte_2B": "ubyte",
+   "portrait_id": "uint",
+   "loading_name": "toffset",
+   "loading_scale": "float",
+   "special_value": "ushort",
+   "reserved_3E": "ushort"
+  }
+ },
+ "TalkChrData": {
+  "8": {
+   "ushort_00": "ushort",
+   "ushort_02": "ushort",
+   "ushort_04": "ushort",
+   "ushort_06": "ushort"
+  }
+ },
+ "PortraitDataParam": {
+  "40": {
+   "portrait_id": "uint",
+   "flags": "uint",
+   "base_chr_code": "toffset",
+   "variant_ref": "ulong",
+   "offset_x": "float",
+   "offset_y": "float",
+   "offset_z": "float",
+   "scale": "float"
+  }
+ },
+ "CollisionFootStepInfo": {
+  "40": {
+   "surface_id": "uint",
+   "flags_04": "uint",
+   "walk_se_ref": "ulong",
+   "walk_interval": "uint",
+   "walk_variation": "uint",
+   "run_se_ref": "ulong",
+   "run_interval": "uint",
+   "run_variation": "uint"
+  }
+ },
+ "ConditionTypeParam": {
+  "8": {
+   "id": "uint",
+   "value": "uint"
+  }
+ },
+ "OverDriveEffect": {
+  "104": {
+   "id": "int",
+   "int1": "int",
+   "int2": "int",
+   "int3": "int",
+   "int4": "int",
+   "int5": "int",
+   "int6": "int",
+   "int7": "int",
+   "int8": "int",
+   "int9": "int",
+   "int10": "int",
+   "int11": "int",
+   "name": "toffset",
+   "name2": "toffset",
+   "name3": "toffset",
+   "name4": "toffset",
+   "text5": "toffset",
+   "text6": "toffset",
+   "name5": "toffset"
+  }
+ },
+ "ConstantValue": {
+  "12": {
+   "id": "uint",
+   "value1": "uint",
+   "value2": "uint"
+  }
+ },
+ "CostumeParam": {
+  "56": {
+   "character_id": "short",
+   "shrt1": "short",
+   "item_id": "short",
+   "shrt3": "short",
+   "code": "toffset",
+   "name": "toffset",
+   "int3": "uint",
+   "int4": "uint",
+   "attach_name": "toffset",
+   "code2": "toffset",
+   "text5": "toffset"
+  }
+ },
+ "CostumeAttachOffset": {
+  "56": {
+   "int0": "uint",
+   "int1": "int",
+   "ref_name": "toffset",
+   "float0": "float",
+   "float1": "float",
+   "float2": "float",
+   "float3": "float",
+   "float4": "float",
+   "float5": "float",
+   "float6": "float",
+   "float7": "float",
+   "float8": "float",
+   "float9": "float"
+  }
+ },
+ "DLCTableData": {
+  "64": {
+   "int1": "uint",
+   "int2": "uint",
+   "arr1": "u32array",
+   "int3": "uint",
+   "arr2": "u32array",
+   "int4": "uint",
+   "name": "toffset",
+   "desc": "toffset",
+   "text3": "toffset"
+  }
+ },
+ "DLCAppIDConvertTableData": {
+  "8": {
+   "dlc_id": "uint",
+   "app_id": "uint"
+  }
+ },
+ "EffectTableData": {
+  "24": {
+   "id": "ulong",
+   "toffset1": "toffset",
+   "toffset2": "toffset"
+  }
+ },
+ "EventBoxTableData": {
+  "56": {
+   "map_name": "toffset",
+   "eventbox_name": "toffset",
+   "enter_ref": "ulong",
+   "leave_ref": "ulong",
+   "box_type": "uint",
+   "flags_24": "uint",
+   "script_ref": "ulong",
+   "trigger_kind": "uint",
+   "reserved_34": "uint"
+  }
+ },
+ "EventGroupData": {
+  "16": {
+   "id": "long",
+   "name": "toffset"
+  }
+ },
+ "EventSubGroupData": {
+  "16": {
+   "id1": "ushort",
+   "id2": "ushort",
+   "empty": "uint",
+   "desc": "toffset"
+  }
+ },
+ "EventTableData": {
+  "128": {
+   "id": "long",
+   "ref_name": "toffset",
+   "ref_name2": "toffset",
+   "long1": "long",
+   "name": "toffset",
+   "name2": "toffset",
+   "long2": "long",
+   "ref_name3": "toffset",
+   "uint1": "uint",
+   "uint2": "uint",
+   "code": "toffset",
+   "arr1": "u16array",
+   "uint3": "uint",
+   "arr2": "u16array",
+   "uint4": "uint",
+   "code2": "toffset",
+   "long3": "long"
+  }
+ },
+ "FaceAnimeData": {
+  "24": {
+   "character_id": "ushort",
+   "variant_id": "ushort",
+   "flags": "uint",
+   "anim_name": "toffset",
+   "pattern_text": "toffset"
+  }
+ },
+ "EyePresetData": {
+  "6": {
+   "eye_dir_pattern_id": "ubyte",
+   "eye_lids_pattern_id": "ubyte",
+   "eye_brows_pattern_id": "ubyte",
+   "mouth_pattern_id": "ubyte",
+   "face_texture_pattern_id": "ushort"
+  }
+ },
+ "EyeScaleData": {
+  "8": {
+   "face_id": "ushort",
+   "eye_ball_size_pattern_id": "ushort",
+   "scale": "float"
+  }
+ },
+ "MouthPatternMap": {
+  "2": {
+   "mouth_pattern_id": "ushort"
+  }
+ },
+ "EyeAttachData": {
+  "32": {
+   "face_id": "ubyte",
+   "eye_side": "ubyte",
+   "attach_pattern_id": "ubyte",
+   "reserved_03": "ubyte",
+   "flags_04": "uint",
+   "attach_ref": "ulong",
+   "attach_kind": "uint",
+   "reserved_14": "uint",
+   "target_ref": "ulong"
+  }
+ },
+ "EyeModifyAttachData": {
+  "32": {
+   "modify_id": "ubyte",
+   "eye_side": "ubyte",
+   "attach_pattern_id": "ubyte",
+   "reserved_03": "ubyte",
+   "flags_04": "uint",
+   "attach_ref": "ulong",
+   "attach_kind": "uint",
+   "reserved_14": "uint",
+   "target_ref": "ulong"
+  }
+ },
+ "EyeDirPatternNameData": {
+  "16": {
+   "pattern_id": "uint",
+   "flags": "uint",
+   "display_name": "toffset"
+  }
+ },
+ "EyeLidsPatternNameData": {
+  "16": {
+   "pattern_id": "uint",
+   "flags": "uint",
+   "display_name": "toffset"
+  }
+ },
+ "EyeBrowsPatternNameData": {
+  "16": {
+   "pattern_id": "uint",
+   "flags": "uint",
+   "display_name": "toffset"
+  }
+ },
+ "EyeModifyPatternNameData": {
+  "16": {
+   "pattern_id": "uint",
+   "flags": "uint",
+   "display_name": "toffset"
+  }
+ },
+ "MouthPatternNameData": {
+  "16": {
+   "pattern_id": "uint",
+   "flags": "uint",
+   "display_name": "toffset"
+  }
+ },
+ "EyeBallSizePatternNameData": {
+  "16": {
+   "pattern_id": "uint",
+   "flags": "uint",
+   "display_name": "toffset"
+  }
+ },
+ "FaceTexturePatternNameData": {
+  "16": {
+   "pattern_id": "uint",
+   "flags": "uint",
+   "display_name": "toffset"
+  }
+ },
+ "FieldItemTableData": {
+  "32": {
+   "unknown_id1": "ulong",
+   "x_coordinate": "float",
+   "y_coordinate": "float",
+   "z_coordinate": "float",
+   "unknown": "uint",
+   "unknown_id2": "ushort",
+   "item_id": "ushort",
+   "value": "uint"
+  }
+ },
+ "GraphicsPresetTableData": {
+  "40": {
+   "preset_id": "uint",
+   "flags": "uint",
+   "display_text_id": "toffset",
+   "profile_ref": "ulong",
+   "texture_quality": "ubyte",
+   "shadow_quality": "ubyte",
+   "effect_quality": "ubyte",
+   "post_process_quality": "ubyte",
+   "lod_quality": "ubyte",
+   "aa_quality": "ubyte",
+   "reflection_quality": "ubyte",
+   "ambient_quality": "ubyte",
+   "overall_level": "uint",
+   "reserved_24": "uint"
+  }
+ },
+ "HelpTitle": {
+  "24": {
+   "id1": "ushort",
+   "id2": "ushort",
+   "id3": "uint",
+   "name": "toffset",
+   "ulong": "ulong"
+  }
+ },
+ "HelpPage": {
+  "32": {
+   "id1": "ushort",
+   "id2": "ushort",
+   "id3": "uint",
+   "ref_name": "toffset",
+   "file_path": "toffset",
+   "name": "toffset"
+  }
+ },
+ "HelpIconList": {
+  "56": {
+   "id1": "ushort",
+   "id2": "ushort",
+   "id3": "uint",
+   "name": "toffset",
+   "float1": "float",
+   "uint1": "uint",
+   "name2": "toffset",
+   "float2": "float",
+   "uint2": "uint",
+   "name3": "toffset",
+   "toffset": "toffset"
+  }
+ },
+ "HelpController": {
+  "16": {
+   "id": "ushort",
+   "id2": "ushort",
+   "uint": "uint",
+   "name": "toffset"
+  }
+ },
+ "HelpOverlayIcon": {
+  "40": {
+   "id1": "ushort",
+   "id2": "ushort",
+   "id3": "uint",
+   "toffset": "toffset",
+   "float1": "float",
+   "float2": "float",
+   "uint": "uint",
+   "float3": "float",
+   "ulong": "ulong"
+  }
+ },
+ "RealTimeHelpTableData": {
+  "24": {
+   "id": "uint",
+   "uint1": "uint",
+   "name": "toffset",
+   "float": "float",
+   "uint2": "uint"
+  }
+ },
+ "ItemKindParam2": {
+  "16": {
+   "id": "long",
+   "name": "toffset"
+  }
+ },
+ "ItemTabType": {
+  "12": {
+   "id": "uint",
+   "int1": "int",
+   "int2": "int"
+  }
+ },
+ "ItemShopTabType": {
+  "8": {
+   "int1": "int",
+   "int2": "int"
+  }
+ },
+ "ConditionHelpData": {
+  "40": {
+   "id": "long",
+   "name": "toffset",
+   "name2": "toffset",
+   "name3": "toffset",
+   "text4": "toffset"
+  }
+ },
+ "SkillEffectTypeHelpData": {
+  "24": {
+   "id": "long",
+   "skill_type_name": "toffset",
+   "text": "toffset"
+  }
+ },
+ "SkillEffectHelpData": {
+  "88": {
+   "effect_id": "ulong",
+   "name": "toffset",
+   "array": "u32array",
+   "int1": "int",
+   "name2": "toffset",
+   "name3": "toffset",
+   "text4": "toffset",
+   "text5": "toffset",
+   "int2": "int",
+   "int3": "int",
+   "name4": "toffset",
+   "name5": "toffset"
+  }
+ },
+ "AttrTypeHelpData": {
+  "24": {
+   "id": "long",
+   "element_name": "toffset",
+   "long": "long"
+  }
+ },
+ "SkillTypeHelpData": {
+  "24": {
+   "id": "long",
+   "name": "toffset",
+   "text2": "toffset"
+  }
+ },
+ "SkillRangeHelpData": {
+  "40": {
+   "id": "long",
+   "name": "toffset",
+   "icon": "long",
+   "name2": "toffset",
+   "text3": "toffset"
+  }
+ },
+ "ItemKindHelpData": {
+  "32": {
+   "category_id": "ushort",
+   "subcategory_id": "ushort",
+   "short1": "ushort",
+   "short2": "ushort",
+   "name": "toffset",
+   "long": "long",
+   "name2": "toffset"
+  }
+ },
+ "SkillItemStatusData": {
+  "48": {
+   "id": "long",
+   "text1": "toffset",
+   "text2": "toffset",
+   "text3": "toffset",
+   "long": "long",
+   "text4": "toffset"
+  }
+ },
+ "SkillConnectListData": {
+  "24": {
+   "id": "ulong",
+   "array": "u16array",
+   "int": "int"
+  }
+ },
+ "SkillTextArrayData": {
+  "24": {
+   "id": "long",
+   "name": "toffset",
+   "text2": "toffset"
+  }
+ },
+ "SkillRangeData": {
+  "20": {
+   "int": "uint",
+   "float1": "float",
+   "float2": "float",
+   "float3": "float",
+   "float4": "float"
+  }
+ },
+ "LookPointTableData": {
+  "64": {
+   "text1": "toffset",
+   "text2": "toffset",
+   "text3": "toffset",
+   "empty": "toffset",
+   "arr1": "u16array",
+   "uint1": "uint",
+   "arr2": "u16array",
+   "uint2": "uint"
+  }
+ },
+ "MapJumpAreaData": {
+  "56": {
+   "id": "uint",
+   "region_id": "uint",
+   "place_name": "toffset",
+   "scena_file": "toffset",
+   "x_coordinate": "float",
+   "y_coordinate": "float",
+   "z_coordinate": "float",
+   "empty": "uint",
+   "jump_file": "toffset",
+   "description": "toffset"
+  }
+ },
+ "MapJumpSpotData": {
+  "152": {
+   "id": "uint",
+   "region_id": "uint",
+   "area_id": "uint",
+   "int1": "uint",
+   "place_name": "toffset",
+   "long1": "ulong",
+   "scena_file": "toffset",
+   "x_coordinate1": "float",
+   "y_coordinate1": "float",
+   "z_coordinate1": "float",
+   "empty": "uint",
+   "sub_scena_file": "toffset",
+   "int2": "uint",
+   "x_coordinate2": "float",
+   "y_coordinate2": "float",
+   "z_coordinate2": "float",
+   "angle2": "float",
+   "int3": "uint",
+   "tag": "toffset",
+   "float1": "ulong",
+   "jump_file": "toffset",
+   "arr1": "u16array",
+   "long2": "uint",
+   "arr2": "u16array",
+   "long3": "uint",
+   "jump_file_note3": "toffset"
+  }
+ },
+ "MarkerTableData": {
+  "112": {
+   "map&lp_icon_id": "short",
+   "far_icon_id": "short",
+   "empty1": "uint",
+   "map_ids": "u32array",
+   "empty2": "uint",
+   "show_flags": "u16array",
+   "empty3": "uint",
+   "hide_flags": "u16array",
+   "placement_type": "short",
+   "chr_id": "short",
+   "quest_id": "long",
+   "scene_or_lp_name": "toffset",
+   "empty4": "uint",
+   "x_pos": "float",
+   "y_pos": "float",
+   "z_pos": "float",
+   "highlight_radius": "float",
+   "trigger_radius": "float",
+   "transition_buffer": "float",
+   "empty5": "uint",
+   "end": "toffset"
+  }
+ },
+ "BlackJackMessage": {
+  "24": {
+   "uint": "uint",
+   "id": "uint",
+   "desc": "toffset",
+   "long": "long"
+  }
+ },
+ "BlackJackMedal": {
+  "24": {
+   "uint1": "uint",
+   "uint2": "uint",
+   "uint3": "uint",
+   "uint4": "uint",
+   "uint5": "uint",
+   "uint6": "uint"
+  }
+ },
+ "BlackJackHelp": {
+  "16": {
+   "id": "long",
+   "name": "toffset"
+  }
+ },
+ "BlackJackProb": {
+  "28": {
+   "uint1": "uint",
+   "uint2": "uint",
+   "uint3": "uint",
+   "uint4": "uint",
+   "uint5": "uint",
+   "uint6": "uint",
+   "uint7": "uint"
+  }
+ },
+ "CardData": {
+  "24": {
+   "id": "long",
+   "name": "toffset",
+   "short1": "short",
+   "short2": "short",
+   "short3": "short",
+   "short4": "short"
+  }
+ },
+ "CardEffectText": {
+  "24": {
+   "id": "long",
+   "name": "toffset",
+   "desc": "toffset"
+  }
+ },
+ "CardAttributeData": {
+  "16": {
+   "id": "long",
+   "text": "toffset"
+  }
+ },
+ "AITypeList": {
+  "4": {
+   "ushort1": "ushort",
+   "ushort2": "ushort"
+  }
+ },
+ "CardBattlerMessage": {
+  "24": {
+   "uint1": "uint",
+   "uint2": "uint",
+   "desc": "toffset",
+   "uint3": "uint",
+   "float": "float"
+  }
+ },
+ "ScoreCoefficient": {
+  "4": {
+   "ushort1": "ushort",
+   "ushort2": "ushort"
+  }
+ },
+ "LogText": {
+  "16": {
+   "id": "long",
+   "desc": "toffset"
+  }
+ },
+ "FishInfo": {
+  "168": {
+   "ushort1": "ushort",
+   "uint1": "uint",
+   "ushort2": "ushort",
+   "id": "toffset",
+   "ulong1": "ulong",
+   "ulong2": "ulong",
+   "ulong3": "ulong",
+   "ulong4": "ulong",
+   "ulong5": "ulong",
+   "ulong6": "ulong",
+   "ulong7": "ulong",
+   "ulong8": "ulong",
+   "ulong9": "ulong",
+   "ulong10": "ulong",
+   "ulong11": "ulong",
+   "ulong12": "ulong",
+   "ulong13": "ulong",
+   "ulong14": "ulong",
+   "ulong15": "ulong",
+   "ulong16": "ulong",
+   "ulong17": "ulong",
+   "ulong18": "ulong",
+   "desc": "toffset"
+  }
+ },
+ "FishingConstant": {
+  "24": {
+   "ulong1": "ulong",
+   "ulong2": "ulong",
+   "ulong3": "ulong"
+  }
+ },
+ "FishingBaitInfo": {
+  "8": {
+   "uint1": "uint",
+   "uint2": "uint"
+  }
+ },
+ "FishingCastInfo": {
+  "12": {
+   "uint1": "uint",
+   "ushort1": "ushort",
+   "uint2": "uint",
+   "ushort2": "ushort"
+  }
+ },
+ "PokerMessage": {
+  "24": {
+   "uint1": "uint",
+   "id": "uint",
+   "desc": "toffset",
+   "empty": "long"
+  }
+ },
+ "PokerMedal": {
+  "40": {
+   "uint1": "uint",
+   "uint2": "uint",
+   "uint3": "uint",
+   "uint4": "uint",
+   "uint5": "uint",
+   "uint6": "uint",
+   "uint7": "uint",
+   "uint8": "uint",
+   "uint9": "uint",
+   "uint10": "uint"
+  }
+ },
+ "PokerHelp": {
+  "16": {
+   "id": "long",
+   "desc": "toffset"
+  }
+ },
+ "PokerTrickLevel": {
+  "4": {
+   "byte1": "byte",
+   "byte2": "byte",
+   "byte3": "byte",
+   "byte4": "byte"
+  }
+ },
+ "MonsterSettingParam": {
+  "168": {
+   "string1": "toffset",
+   "id": "ulong",
+   "array1": "u32array",
+   "btl_name": "uint",
+   "tag": "toffset",
+   "long2": "ulong",
+   "array2": "u16array",
+   "empty2": "uint",
+   "array3": "u16array",
+   "empty3": "uint",
+   "battle": "toffset",
+   "int1": "uint",
+   "float1": "float",
+   "float2": "float",
+   "float3": "float",
+   "float4": "float",
+   "unknown1": "uint",
+   "unknown2": "uint",
+   "unknown3": "uint",
+   "string7": "toffset",
+   "move_type": "toffset",
+   "string9": "toffset",
+   "long5": "ulong",
+   "long6": "ulong",
+   "stringA": "toffset"
+  }
+ },
+ "NameTableData": {
+  "104": {
+   "character_id": "ulong",
+   "name": "toffset",
+   "model": "toffset",
+   "face": "toffset",
+   "script": "toffset",
+   "long1": "ulong",
+   "code": "toffset",
+   "long2": "long",
+   "ref_name": "toffset",
+   "long3": "ulong",
+   "text3": "toffset",
+   "full_name": "toffset",
+   "full_name_en": "toffset"
+  }
+ },
+ "NoteMainCategory": {
+  "24": {
+   "id": "long",
+   "note_text1": "toffset",
+   "note_text2": "toffset"
+  }
+ },
+ "NoteMainBadge": {
+  "4": {
+   "id": "short",
+   "value": "short"
+  }
+ },
+ "NoteMainAffiliation": {
+  "16": {
+   "name": "toffset",
+   "value": "long"
+  }
+ },
+ "NoteMainHistory": {
+  "16": {
+   "name": "toffset",
+   "value": "long"
+  }
+ },
+ "NoteBattleCategory": {
+  "24": {
+   "id": "long",
+   "note_text1": "toffset",
+   "note_text2": "toffset"
+  }
+ },
+ "NoteCookCategory": {
+  "32": {
+   "id": "long",
+   "note_text1": "toffset",
+   "note_text2": "toffset",
+   "note_text3": "toffset"
+  }
+ },
+ "NoteHelpCategory": {
+  "32": {
+   "id": "long",
+   "note_text1": "toffset",
+   "note_text2": "toffset",
+   "note_text3": "toffset"
+  }
+ },
+ "NoteMonsRecordData": {
+  "40": {
+   "ref_name": "toffset",
+   "int1": "uint",
+   "int2": "uint",
+   "region": "long",
+   "code": "toffset",
+   "desc": "toffset"
+  }
+ },
+ "NoteCookChara": {
+  "2": {
+   "id": "short"
+  }
+ },
+ "NoteCookItem": {
+  "56": {
+   "int1": "int",
+   "int2": "int",
+   "int3": "int",
+   "int4": "int",
+   "ref_name": "toffset",
+   "int5": "int",
+   "int6": "int",
+   "name": "toffset",
+   "arr": "u8array",
+   "int7": "int"
+  }
+ },
+ "NoteCookBonusChara": {
+  "2": {
+   "id": "ushort"
+  }
+ },
+ "NPCParam": {
+  "160": {
+   "packed_id": "uint",
+   "flags_04": "uint",
+   "tagged_ref_08": "ulong",
+   "tagged_ref_10": "ulong",
+   "flags_18": "uint",
+   "flags_1C": "uint",
+   "tagged_ref_20": "ulong",
+   "type_28": "uint",
+   "pos_x": "float",
+   "pos_y": "float",
+   "pos_z": "float",
+   "yaw_deg": "float",
+   "param_float_3C": "float",
+   "param_float_40": "float",
+   "param_44": "uint",
+   "float_48": "float",
+   "float_4C": "float",
+   "param_50": "uint",
+   "param_54": "uint",
+   "tagged_ref_58": "ulong",
+   "resource_ref_60": "ulong",
+   "resource_ref_68": "ulong",
+   "param_70": "uint",
+   "param_74": "uint",
+   "resource_ref_78": "ulong",
+   "resource_ref_80": "ulong",
+   "param_88": "uint",
+   "param_8C": "uint",
+   "resource_ref_90": "ulong",
+   "param_98": "uint",
+   "param_9C": "uint"
+  },
+  "152": {
+   "packed_id": "uint",
+   "flags_04": "uint",
+   "tagged_ref_08": "ulong",
+   "name_ref_10": "ulong",
+   "flags_18": "uint",
+   "flags_1C": "uint",
+   "name_ref_20": "ulong",
+   "type_28": "uint",
+   "pos_x": "float",
+   "pos_y": "float",
+   "pos_z": "float",
+   "yaw_deg": "float",
+   "float_3C": "float",
+   "param_40": "uint",
+   "param_44": "uint",
+   "param_48": "uint",
+   "param_4C": "uint",
+   "resource_name_50": "ulong",
+   "resource_ref_58": "ulong",
+   "resource_ref_60": "ulong",
+   "param_68": "uint",
+   "param_6C": "uint",
+   "resource_ref_70": "ulong",
+   "resource_ref_78": "ulong",
+   "param_80": "uint",
+   "param_84": "uint",
+   "resource_ref_88": "ulong",
+   "param_90": "uint",
+   "param_94": "uint"
+  }
+ },
+ "OrbmentSlotParam": {
+  "28": {
+   "owner_id": "uint",
+   "line_id": "ubyte",
+   "slot_id": "ubyte",
+   "route_id": "ubyte",
+   "is_core_slot": "ubyte",
+   "unlock_cost_a": "ushort",
+   "unlock_cost_b": "ushort",
+   "earth_value": "ushort",
+   "water_value": "ushort",
+   "fire_value": "ushort",
+   "wind_value": "ushort",
+   "time_value": "ushort",
+   "space_value": "ushort",
+   "mirage_value": "ushort",
+   "reserved_1A": "ushort"
+  }
+ },
+ "QuartzParam": {
+  "40": {
+   "quartz_id": "ushort",
+   "element_id": "ushort",
+   "flags_04": "uint",
+   "pattern_ref": "ulong",
+   "earth_cost": "ushort",
+   "water_cost": "ushort",
+   "fire_cost": "ushort",
+   "wind_cost": "ushort",
+   "time_cost": "ushort",
+   "space_cost": "ushort",
+   "mirage_cost": "ushort",
+   "element_value": "ushort",
+   "flags_20": "uint",
+   "flags_24": "uint"
+  }
+ },
+ "ArtsParam": {
+  "16": {
+   "art_id": "uint",
+   "value_04": "ubyte",
+   "byte_05": "ubyte",
+   "byte_06": "ubyte",
+   "flags_07": "ubyte",
+   "value_08": "ushort",
+   "value_0A": "ushort",
+   "flags_0C": "uint"
+  }
+ },
+ "AttrData": {
+  "24": {
+   "attr_id": "uint",
+   "icon_id": "uint",
+   "color_b": "ubyte",
+   "color_g": "ubyte",
+   "color_r": "ubyte",
+   "color_a": "ubyte",
+   "value_0C": "ushort",
+   "reserved_0E": "ushort",
+   "display_name": "toffset"
+  }
+ },
+ "PlaceTableData": {
+  "168": {
+   "id": "ushort",
+   "id1": "uint",
+   "id2": "ushort",
+   "file1": "toffset",
+   "file2": "toffset",
+   "file3": "toffset",
+   "float_1": "float",
+   "float1": "float",
+   "float_2": "float",
+   "uint3": "uint",
+   "empty_array1": "u16array",
+   "float2": "float",
+   "empty_array2": "u16array",
+   "float3": "float",
+   "ulong1": "ulong",
+   "tags": "toffset",
+   "name": "toffset",
+   "empty_text": "toffset",
+   "float4": "float",
+   "float5": "float",
+   "u32array": "u32array",
+   "float6": "float",
+   "float7": "float",
+   "float8": "float",
+   "uint4": "uint",
+   "uint5": "uint",
+   "uint6": "uint",
+   "float9": "float",
+   "float10": "float",
+   "float11": "float"
+  }
+ },
+ "PopupFaceParam": {
+  "96": {
+   "character_id": "uint",
+   "flags_04": "uint",
+   "attach_node": "toffset",
+   "motion_name": "toffset",
+   "flags_18": "uint",
+   "fade_in_time": "float",
+   "float_20": "float",
+   "float_24": "float",
+   "float_28": "float",
+   "float_2C": "float",
+   "float_30": "float",
+   "float_34": "float",
+   "float_38": "float",
+   "float_3C": "float",
+   "float_40": "float",
+   "float_44": "float",
+   "float_48": "float",
+   "float_4C": "float",
+   "float_50": "float",
+   "float_54": "float",
+   "float_58": "float",
+   "float_5C": "float"
+  }
+ },
+ "QuestRank": {
+  "24": {
+   "id": "ulong",
+   "rank_name": "toffset",
+   "int1": "int",
+   "int2": "int"
+  }
+ },
+ "QuestChapterRank": {
+  "20": {
+   "id": "uint",
+   "int1": "int",
+   "int2": "int",
+   "int3": "int",
+   "int4": "int"
+  }
+ },
+ "QuestTitle": {
+  "104": {
+   "id": "ushort",
+   "int1": "int",
+   "empty1": "short",
+   "quest_name": "toffset",
+   "quest_giver": "toffset",
+   "short1": "short",
+   "int2": "int",
+   "empty2": "short",
+   "file_name": "toffset",
+   "int3": "int",
+   "int4": "int",
+   "byte1": "ubyte",
+   "byte2": "ubyte",
+   "byte3": "ubyte",
+   "byte4": "ubyte",
+   "byte5": "ubyte",
+   "byte6": "ubyte",
+   "byte7": "ubyte",
+   "byte8": "ubyte",
+   "byte9": "ubyte",
+   "byte10": "ubyte",
+   "byte11": "ubyte",
+   "byte12": "ubyte",
+   "byte13": "ubyte",
+   "byte14": "ubyte",
+   "byte15": "ubyte",
+   "byte16": "ubyte",
+   "int5": "int",
+   "int6": "int",
+   "short2": "ushort",
+   "int7": "int",
+   "empty3": "short",
+   "quest_number": "toffset",
+   "completion_comment": "toffset",
+   "empty4": "long"
+  }
+ },
+ "QuestText": {
+  "32": {
+   "quest_id": "ushort",
+   "txt_id": "int",
+   "empty1": "short",
+   "quest_description": "toffset",
+   "long1": "long",
+   "unk_txt": "toffset"
+  }
+ },
+ "NaviText": {
+  "56": {
+   "long1": "long",
+   "name": "toffset",
+   "name2": "toffset",
+   "arr1": "u32array",
+   "int1": "int",
+   "arr2": "u32array",
+   "int2": "int"
+  }
+ },
+ "QuestReportVoice": {
+  "88": {
+   "id": "long",
+   "arr1": "u32array",
+   "int1": "int",
+   "arr2": "u32array",
+   "int2": "int",
+   "arr3": "u32array",
+   "int3": "int",
+   "arr4": "u32array",
+   "int4": "int",
+   "arr5": "u32array",
+   "int5": "int"
+  }
+ },
+ "SceneCommonSetting": {
+  "28": {
+   "setting_id": "uint",
+   "param_04": "float",
+   "float_08": "float",
+   "param_0C": "float",
+   "param_10": "float",
+   "float_14": "float",
+   "param_18": "float"
+  }
+ },
+ "SceneSkySetting": {
+  "72": {
+   "sky_id": "uint",
+   "flags": "uint",
+   "display_name": "toffset",
+   "float_10": "float",
+   "float_14": "float",
+   "float_18": "float",
+   "float_1C": "float",
+   "float_20": "float",
+   "float_24": "float",
+   "float_28": "float",
+   "float_2C": "float",
+   "float_30": "float",
+   "float_34": "float",
+   "float_38": "float",
+   "float_3C": "float",
+   "float_40": "float",
+   "float_44": "float"
+  }
+ },
+ "SETableData": {
+  "32": {
+   "se_id": "ushort",
+   "variant": "ushort",
+   "flags": "uint",
+   "cue_name": "toffset",
+   "bus_id": "uint",
+   "volume": "float",
+   "bank_id": "ushort",
+   "priority": "ushort",
+   "distance_or_limit": "float"
+  }
+ },
+ "ShopInfo": {
+  "72": {
+   "id": "ulong",
+   "shop_name": "toffset",
+   "long1": "long",
+   "flag": "toffset",
+   "empty": "ushort",
+   "shop_price_percent": "short",
+   "shop_cam_pos_x": "float",
+   "shop_cam_pos_y": "float",
+   "shop_cam_pos_z": "float",
+   "shop_cam_rotation_1": "float",
+   "shop_cam_rotation_2": "float",
+   "shop_cam_rotation_3": "float",
+   "shop_cam_rotation_4": "float",
+   "float1": "float",
+   "byte1": "ubyte",
+   "byte2": "ubyte",
+   "byte3": "ubyte",
+   "byte4": "ubyte"
+  }
+ },
+ "ShopItem": {
+  "40": {
+   "shop_id": "ushort",
+   "item_id": "short",
+   "unknown": "int",
+   "start_scena_flags": "u16array",
+   "empty1": "int",
+   "end_scena_flags": "u16array",
+   "int2": "int"
+  }
+ },
+ "ShopTypeDesc": {
+  "24": {
+   "id": "ulong",
+   "code": "toffset",
+   "byte1": "ubyte",
+   "byte2": "ubyte",
+   "byte3": "ubyte",
+   "byte4": "ubyte",
+   "byte5": "ubyte",
+   "byte6": "ubyte",
+   "byte7": "ubyte",
+   "byte8": "ubyte"
+  }
+ },
+ "ShopConv": {
+  "36": {
+   "id": "uint",
+   "earth_sepith_exchange_rate": "float",
+   "water_sepith_exchange_rate": "float",
+   "fire_sepith_exchange_rate": "float",
+   "wind_sepith_exchange_rate": "float",
+   "time_sepith_exchange_rate": "float",
+   "space_sepith_exchange_rate": "float",
+   "mirage_sepith_exchange_rate": "float",
+   "sepith_mass_exchange_rate": "float"
+  }
+ },
+ "CharaSettingInfo": {
+  "20": {
+   "id": "uint",
+   "float1": "float",
+   "float2": "float",
+   "float3": "float",
+   "float4": "float"
+  }
+ },
+ "CharaArrange": {
+  "64": {
+   "chr_id": "int",
+   "int1": "int",
+   "animation": "toffset",
+   "text1": "toffset",
+   "float1": "float",
+   "float2": "float",
+   "float3": "float",
+   "float4": "float",
+   "code": "toffset",
+   "empty1": "int",
+   "float5": "float",
+   "empty2": "long"
+  }
+ },
+ "SkillPowerIcon": {
+  "16": {
+   "skill_power": "int",
+   "icon_id": "int",
+   "power_text": "toffset"
+  }
+ },
+ "SkillGetParam": {
+  "10": {
+   "character_id": "ushort",
+   "skill_id_1": "ushort",
+   "skill_id_2": "ushort",
+   "skill_id_3": "ushort",
+   "skill_id_4": "ushort"
+  }
+ },
+ "StatusParam": {
+  "416": {
+   "ai_file": "toffset",
+   "code": "toffset",
+   "data": "ulong",
+   "file1": "toffset",
+   "file2": "toffset",
+   "file3": "toffset",
+   "file4": "toffset",
+   "unknown": "toffset",
+   "file5": "toffset",
+   "int1": "uint",
+   "float1": "float",
+   "float2": "float",
+   "float3": "float",
+   "float4": "float",
+   "float5": "float",
+   "float6": "float",
+   "float7": "float",
+   "float8": "float",
+   "float9": "float",
+   "float10": "float",
+   "float11": "float",
+   "float12": "float",
+   "float13": "float",
+   "float14": "float",
+   "float15": "float",
+   "float16": "float",
+   "float17": "float",
+   "code2": "toffset",
+   "int2": "uint",
+   "int3": "uint",
+   "int4": "uint",
+   "float23": "float",
+   "float24": "float",
+   "float25": "float",
+   "float26": "float",
+   "float27": "float",
+   "short3": "ushort",
+   "short4": "ushort",
+   "short5": "ushort",
+   "short6": "ushort",
+   "float28": "float",
+   "float29": "float",
+   "int5": "uint",
+   "float30": "float",
+   "float31": "float",
+   "float32": "float",
+   "level": "uint",
+   "exp_base": "uint",
+   "exp_growth": "float",
+   "hp_base": "uint",
+   "hp_growth": "float",
+   "ep_base": "uint",
+   "cp_base": "uint",
+   "cp_growth": "float",
+   "str_base": "uint",
+   "str_growth": "float",
+   "def_base": "uint",
+   "def_growth": "float",
+   "ats_base": "uint",
+   "ats_growth": "float",
+   "adf_base": "uint",
+   "adf_growth": "float",
+   "spd_base": "uint",
+   "spd_growth": "float",
+   "agl_base": "uint",
+   "agl_growth": "float",
+   "dex_base": "uint",
+   "dex_growth": "float",
+   "mov": "uint",
+   "rng": "uint",
+   "int6": "uint",
+   "int7": "uint",
+   "int8": "uint",
+   "int9": "uint",
+   "int10": "uint",
+   "int11": "uint",
+   "poison_efficacy": "ubyte",
+   "freeze_efficacy": "ubyte",
+   "petrify_efficacy": "ubyte",
+   "sleep_efficacy": "ubyte",
+   "burn_efficacy": "ubyte",
+   "seal_efficacy": "ubyte",
+   "mute_efficacy": "ubyte",
+   "blind_efficacy": "ubyte",
+   "confuse_efficacy": "ubyte",
+   "deathblow_efficacy": "ubyte",
+   "statdown_efficacy": "ubyte",
+   "stun_efficacy": "ubyte",
+   "delay_efficacy": "ushort",
+   "earth_efficacy": "ushort",
+   "water_efficacy": "ushort",
+   "fire_efficacy": "ushort",
+   "wind_efficacy": "ushort",
+   "time_efficacy": "ushort",
+   "space_efficacy": "ushort",
+   "mirage_efficacy": "ushort",
+   "earth_sepith": "ubyte",
+   "water_sepith": "ubyte",
+   "fire_sepith": "ubyte",
+   "wind_sepith": "ubyte",
+   "time_sepith": "ubyte",
+   "space_sepith": "ubyte",
+   "mirage_sepith": "ubyte",
+   "sepith_mass": "ubyte",
+   "long_for_ally": "long",
+   "item_drop_1": "uint",
+   "item_drop_1_min": "ubyte",
+   "item_drop_1_max": "ubyte",
+   "item_drop_1_rate": "ushort",
+   "item_drop_2": "uint",
+   "item_drop_2_min": "ubyte",
+   "item_drop_2_max": "ubyte",
+   "item_drop_2_rate": "ushort",
+   "empty": "uint",
+   "name": "toffset",
+   "description": "toffset"
+  }
+ },
+ "SupportAbilityParam": {
+  "64": {
+   "ability_id": "ubyte",
+   "upgrade_id": "ubyte",
+   "byte1": "ubyte",
+   "byte2": "ubyte",
+   "param_1": "int",
+   "param_2": "int",
+   "empty1": "int",
+   "activation_chance": "int",
+   "activation_chance_overdrive": "int",
+   "int3": "int",
+   "empty2": "int",
+   "code": "toffset",
+   "animation": "toffset",
+   "name": "toffset",
+   "description": "toffset"
+  }
+ },
+ "SupportLevelData": {
+  "12": {
+   "chr_id": "ushort",
+   "level": "ushort",
+   "exp_requirement": "int",
+   "ability_id": "int"
+  }
+ },
+ "TBoxParam": {
+  "88": {
+   "scena_name": "toffset",
+   "box_name": "toffset",
+   "ushort_10": "ushort",
+   "ushort_12": "ushort",
+   "flags_14": "uint",
+   "open_script_ref": "ulong",
+   "item_script_ref": "ulong",
+   "param_28": "uint",
+   "param_2C": "uint",
+   "open_flag_ref": "ulong",
+   "reward_count": "uint",
+   "param_3C": "uint",
+   "ushort_40": "ushort",
+   "ushort_42": "ushort",
+   "flags_44": "uint",
+   "title_ref": "ulong",
+   "param_50": "uint",
+   "param_54": "uint"
+  }
+ },
+ "TextTableData": {
+  "16": {
+   "key": "toffset",
+   "name": "toffset"
+  }
+ },
+ "TipsTableData": {
+  "56": {
+   "id1": "ushort",
+   "id2": "ushort",
+   "int1": "uint",
+   "array": "u16array",
+   "int2": "uint",
+   "tag": "toffset",
+   "tab_id": "uint",
+   "order": "uint",
+   "title": "toffset",
+   "desc": "toffset"
+  }
+ },
+ "TitleTableData": {
+  "56": {
+   "title_id": "uint",
+   "flags": "uint",
+   "event_id": "toffset",
+   "state_name": "toffset",
+   "image_name": "toffset",
+   "loop_count": "uint",
+   "fade_time": "float",
+   "movie_ref": "ulong",
+   "display_height": "float",
+   "reserved_34": "uint"
+  }
+ },
+ "UDSActivityData": {
+  "16": {
+   "activity_id": "uint",
+   "flags": "uint",
+   "activity_name": "toffset"
+  }
+ },
+ "VoiceTableData": {
+  "40": {
+   "id": "int",
+   "int1": "int",
+   "filename": "toffset",
+   "int2": "int",
+   "float1": "float",
+   "int3": "int",
+   "float2": "float",
+   "desc": "toffset"
+  }
+ },
+ "ItemTableData": {
+  "232": {
+   "id": "uint",
+   "character_restriction": "uint",
+   "text_08": "toffset",
+   "text_10": "toffset",
+   "category": "ubyte",
+   "subcategory": "ubyte",
+   "item_icon": "ushort",
+   "effect_icon": "ushort",
+   "element": "ushort",
+   "uint_20": "uint",
+   "float_24": "float",
+   "float_28": "float",
+   "uint_2C": "uint",
+   "uint_30": "uint",
+   "uint_34": "uint",
+   "uint_38": "uint",
+   "uint_3C": "uint",
+   "uint_40": "uint",
+   "uint_44": "uint",
+   "uint_48": "uint",
+   "uint_4C": "uint",
+   "uint_50": "uint",
+   "uint_54": "uint",
+   "uint_58": "uint",
+   "uint_5C": "uint",
+   "uint_60": "uint",
+   "uint_64": "uint",
+   "uint_68": "uint",
+   "uint_6C": "uint",
+   "uint_70": "uint",
+   "uint_74": "uint",
+   "uint_78": "uint",
+   "float_7C": "float",
+   "uint_80": "uint",
+   "uint_84": "uint",
+   "uint_88": "uint",
+   "uint_8C": "uint",
+   "uint_90": "uint",
+   "uint_94": "uint",
+   "uint_98": "uint",
+   "uint_9C": "uint",
+   "uint_A0": "uint",
+   "uint_A4": "uint",
+   "uint_A8": "uint",
+   "uint_AC": "uint",
+   "int_B0": "int",
+   "uint_B4": "uint",
+   "uint_B8": "uint",
+   "price": "uint",
+   "text_C0": "toffset",
+   "name": "toffset",
+   "desc": "toffset",
+   "uint_D8": "uint",
+   "uint_DC": "uint",
+   "uint_E0": "uint",
+   "uint_E4": "uint"
+  }
+ },
+ "SkillParam": {
+  "176": {
+   "id": "uint",
+   "uint_04": "uint",
+   "flag1": "toffset",
+   "skill_type": "uint",
+   "uint_14": "uint",
+   "flag2": "toffset",
+   "targeting_data": "uint",
+   "float_24": "float",
+   "aoe_range": "float",
+   "aoe_size": "float",
+   "effect_type": "uint",
+   "power": "uint",
+   "eff0_p1": "uint",
+   "eff0_p2": "uint",
+   "eff1_id": "uint",
+   "eff1_val": "uint",
+   "eff1_p1": "uint",
+   "eff1_p2": "uint",
+   "eff2_id": "uint",
+   "eff2_val": "uint",
+   "eff2_p1": "uint",
+   "eff2_p2": "uint",
+   "eff3_id": "uint",
+   "eff3_val": "uint",
+   "eff3_p1": "uint",
+   "eff3_p2": "uint",
+   "eff4_id": "uint",
+   "eff4_val": "uint",
+   "eff4_p1": "uint",
+   "eff4_p2": "uint",
+   "cast_time": "float",
+   "uint_84": "uint",
+   "ep_cost": "uint",
+   "uint_8C": "uint",
+   "anim_name": "toffset",
+   "name": "toffset",
+   "text_A0": "toffset",
+   "desc": "toffset"
+  }
+ },
+ "ConditionInfoTableData": {
+  "88": {
+   "id": "uint",
+   "int1": "uint",
+   "state_name": "toffset",
+   "uint_10": "uint",
+   "uint_14": "uint",
+   "uint_18": "uint",
+   "int_1C": "int",
+   "int_20": "int",
+   "int_24": "int",
+   "uint_28": "uint",
+   "int_2C": "int",
+   "int_30": "int",
+   "int_34": "int",
+   "uint_38": "uint",
+   "rate": "float",
+   "uint_40": "uint",
+   "uint_44": "uint",
+   "uint_48": "uint",
+   "uint_4C": "uint",
+   "text_50": "toffset"
+  }
+ },
+ "TradeItem": {
+  "52": {
+   "offered_item_id": "uint",
+   "cost1_item": "uint",
+   "cost1_num": "uint",
+   "cost2_item": "uint",
+   "cost2_num": "uint",
+   "cost3_item": "uint",
+   "cost3_num": "uint",
+   "cost4_item": "uint",
+   "cost4_num": "uint",
+   "cost5_item": "uint",
+   "cost5_num": "uint",
+   "cost6_item": "uint",
+   "cost6_num": "uint"
+  }
+ },
+ "FishingSpot": {
+  "440": {
+   "map_id": "toffset",
+   "script_name": "toffset",
+   "uint_10": "uint",
+   "uint_14": "uint",
+   "uint_18": "uint",
+   "uint_1C": "uint",
+   "uint_20": "uint",
+   "uint_24": "uint",
+   "uint_28": "uint",
+   "uint_2C": "uint",
+   "uint_30": "uint",
+   "uint_34": "uint",
+   "uint_38": "uint",
+   "uint_3C": "uint",
+   "uint_40": "uint",
+   "uint_44": "uint",
+   "uint_48": "uint",
+   "uint_4C": "uint",
+   "uint_50": "uint",
+   "uint_54": "uint",
+   "uint_58": "uint",
+   "uint_5C": "uint",
+   "uint_60": "uint",
+   "uint_64": "uint",
+   "uint_68": "uint",
+   "uint_6C": "uint",
+   "uint_70": "uint",
+   "uint_74": "uint",
+   "uint_78": "uint",
+   "uint_7C": "uint",
+   "uint_80": "uint",
+   "uint_84": "uint",
+   "uint_88": "uint",
+   "uint_8C": "uint",
+   "uint_90": "uint",
+   "uint_94": "uint",
+   "uint_98": "uint",
+   "uint_9C": "uint",
+   "uint_A0": "uint",
+   "uint_A4": "uint",
+   "uint_A8": "uint",
+   "uint_AC": "uint",
+   "uint_B0": "uint",
+   "uint_B4": "uint",
+   "uint_B8": "uint",
+   "uint_BC": "uint",
+   "uint_C0": "uint",
+   "uint_C4": "uint",
+   "uint_C8": "uint",
+   "uint_CC": "uint",
+   "uint_D0": "uint",
+   "uint_D4": "uint",
+   "uint_D8": "uint",
+   "uint_DC": "uint",
+   "uint_E0": "uint",
+   "uint_E4": "uint",
+   "uint_E8": "uint",
+   "uint_EC": "uint",
+   "uint_F0": "uint",
+   "uint_F4": "uint",
+   "uint_F8": "uint",
+   "uint_FC": "uint",
+   "uint_100": "uint",
+   "uint_104": "uint",
+   "uint_108": "uint",
+   "uint_10C": "uint",
+   "uint_110": "uint",
+   "uint_114": "uint",
+   "uint_118": "uint",
+   "uint_11C": "uint",
+   "uint_120": "uint",
+   "uint_124": "uint",
+   "uint_128": "uint",
+   "uint_12C": "uint",
+   "uint_130": "uint",
+   "uint_134": "uint",
+   "uint_138": "uint",
+   "uint_13C": "uint",
+   "uint_140": "uint",
+   "uint_144": "uint",
+   "uint_148": "uint",
+   "uint_14C": "uint",
+   "uint_150": "uint",
+   "uint_154": "uint",
+   "uint_158": "uint",
+   "uint_15C": "uint",
+   "uint_160": "uint",
+   "uint_164": "uint",
+   "uint_168": "uint",
+   "uint_16C": "uint",
+   "uint_170": "uint",
+   "uint_174": "uint",
+   "uint_178": "uint",
+   "uint_17C": "uint",
+   "uint_180": "uint",
+   "uint_184": "uint",
+   "uint_188": "uint",
+   "uint_18C": "uint",
+   "uint_190": "uint",
+   "uint_194": "uint",
+   "uint_198": "uint",
+   "uint_19C": "uint",
+   "uint_1A0": "uint",
+   "uint_1A4": "uint",
+   "uint_1A8": "uint",
+   "uint_1AC": "uint",
+   "uint_1B0": "uint",
+   "uint_1B4": "uint"
+  }
+ },
+ "NoteCookRecipe": {
+  "68": {
+   "recipe_id": "uint",
+   "ing1_id": "uint",
+   "ing1_num": "uint",
+   "ing2_id": "uint",
+   "ing2_num": "uint",
+   "ing3_id": "uint",
+   "ing3_num": "uint",
+   "ing4_id": "uint",
+   "ing4_num": "uint",
+   "ing5_id": "uint",
+   "ing5_num": "uint",
+   "ing6_id": "uint",
+   "ing6_num": "uint",
+   "ing7_id": "uint",
+   "ing7_num": "uint",
+   "ing8_id": "uint",
+   "ing8_num": "uint"
+  }
+ }
+}
