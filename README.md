@@ -53,6 +53,7 @@ ED9ModManager/
 - [Dear ImGui](https://github.com/ocornut/imgui)(MIT)
 - [MinHook](https://github.com/TsudaKageyu/minhook)(BSD-2-Clause)
 - [nlohmann/json](https://github.com/nlohmann/json)(MIT)
+- [KuroTools](https://github.com/nnguyen259/KuroTools)(MIT)
 
 详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
