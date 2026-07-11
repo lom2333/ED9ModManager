@@ -350,6 +350,22 @@ RunResult Run(const Paths& paths, bool force) {
               }
               std::sort(as.begin(), as.end(), [](const AssetSrc& a, const AssetSrc& b){ return a.rel < b.rel; });
               for (auto& a : as) assetFiles.push_back(std::move(a)); } }
+        // 音频资源透传(语言无关):Mod\<mod>\{voice,se,bgm1,bgm2,bgm3}\** 按 pac 相对名原样铺到 cache\merged\**。
+        //   如 Mod\<mod>\voice\wav\X.wav → 引擎查找键 "voice/wav/X.wav"(未压缩 WAV,由 SceneRedirect 提供,不改原 pac)。
+        for (const char* ns : { "voice", "se", "bgm1", "bgm2", "bgm3" }) {
+            fs::path nsDir = dir / ns;
+            if (!fs::is_directory(nsDir, ec)) continue;
+            std::vector<AssetSrc> rs;
+            for (auto it = fs::recursive_directory_iterator(nsDir, ec); it != fs::recursive_directory_iterator(); it.increment(ec)) {
+                if (ec) break;
+                if (!it->is_regular_file(ec)) continue;
+                std::string rel = std::string(ns) + "/" + fs::relative(it->path(), nsDir, ec).generic_string();  // 引擎查找键
+                if (off(rel)) continue;
+                rs.push_back({ it->path(), rel, m.name });
+            }
+            std::sort(rs.begin(), rs.end(), [](const AssetSrc& a, const AssetSrc& b){ return a.rel < b.rel; });
+            for (auto& r : rs) assetFiles.push_back(std::move(r));
+        }
         // scene 二进制原样透传:Mod\<mod>\scene_raw\*.json(预合并好的 bjson scene,如室内图加 MonsterArea)
         //   → cache\merged\scene\<名>。复用 assetFiles(rel="scene/<名>")=部署/指纹/冲突全走 asset 通道。
         //   ⚠用于 scene_add_json 合并不了的场景(目标图无同类型 actor 模板/名表缺字段名)。
@@ -442,8 +458,15 @@ RunResult Run(const Paths& paths, bool force) {
     }
 
     // 清理上次合并产物(禁用/删除/改名 mod 后避免残留 → 始终从 pac + 当前启用 mod 全量重建)。
-    { std::error_code ce; for (const char* sub : { "table", "table_sc", "table_tc", "table_kr",
-        "scene", "script", "script_sc", "script_tc", "script_kr", "asset" }) fs::remove_all(fs::path(paths.cacheDir) / sub, ce); }
+    { std::error_code ce;
+      std::set<std::string> clearDirs = { "table", "table_sc", "table_tc", "table_kr",
+        "scene", "script", "script_sc", "script_tc", "script_kr", "asset" };
+      // redirect\ 透传可写入任意顶层命名空间(voice/se/bgm/...);把本次涉及的顶层目录也纳入清理。
+      for (const auto& a : assetFiles) {
+          auto pos = a.rel.find('/');
+          if (pos != std::string::npos) clearDirs.insert(a.rel.substr(0, pos));
+      }
+      for (const auto& sub : clearDirs) fs::remove_all(fs::path(paths.cacheDir) / sub, ce); }
 
     // 机器可读报告(供 GUI / mod 管理器);随各步骤填充,末尾写 cache\merge_report.json。
     nlohmann::json report;

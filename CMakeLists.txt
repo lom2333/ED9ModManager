@@ -182,5 +182,12 @@ target_compile_definitions(mod_manager PRIVATE UNICODE _UNICODE NOMINMAX WIN32_L
 if (MSVC)
     target_compile_options(mod_manager PRIVATE /utf-8 /EHsc)
 endif()
-target_link_libraries(mod_manager PRIVATE imgui d3d11 d3dcompiler shell32 ole32 comdlg32)
+target_link_libraries(mod_manager PRIVATE imgui d3d11 d3dcompiler shell32 ole32 comdlg32 windowscodecs)
 set_target_properties(mod_manager PROPERTIES OUTPUT_NAME "ED9ModManager")
+
+add_executable(mod_manager_cli tools/mod_manager/cli_launcher.cpp)
+target_compile_definitions(mod_manager_cli PRIVATE UNICODE _UNICODE)
+if (MSVC)
+    target_compile_options(mod_manager_cli PRIVATE /utf-8)
+endif()
+set_target_properties(mod_manager_cli PROPERTIES OUTPUT_NAME "ED9ModManagerCLI")
