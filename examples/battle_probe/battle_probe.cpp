@@ -1,17 +1,3 @@
-// ED9Loader 诊断插件:BattleProbe —— 实时 dump 战斗区列表(逆向自 script_command_btl.cpp)。
-//
-// 逆向结论:btl_start(Cmd_btl_15 / FUN_14036ead0) 与 btl_get_area_pos
-//   (Cmd_sora1_0D_7D / FUN_140379b60)都在同一个全局列表里【按名字】查找战斗区:
-//     manager = *(uintptr_t*)(base + 0xad18f8)     ; DAT_140ad18f8 = 战斗系统全局
-//     list    = *(uintptr_t*)(manager + 0x1488)    ; 区条目数组(步长 0x20)
-//     count   = *(uintptr_t*)(manager + 0x1490)    ; 区条目数
-//     entry_i = list + i*0x20
-//     obj_i   = *(uintptr_t*)entry_i               ; 区对象
-//     name    = (char*)(obj_i + 0x10)              ; 内联字符串(查找键)
-//     pos     = float[3] @ obj_i + 0xc8/0xcc/0xd0  ; get_area_pos 返回的 x/y/z
-//     mcount  = *(uint*)(obj_i + 0x218)            ; 该区已分配怪物数
-//
-// 命令:-btl list   在 mp4000(或任意图)里走动后输入,看列表是否已填充、键名是什么。
 #include "ed9loader_api.h"
 
 #include <Windows.h>
@@ -21,14 +7,13 @@
 
 static const Ed9Api* g_api = nullptr;
 
-// 可在 ED9Loader/config/BattleProbe.ini 调(十进制)。默认来自逆向。
-static unsigned g_rva_global   = 0xad18f8; // DAT_140ad18f8
-static unsigned g_off_list     = 0x1488;   // manager -> 区列表指针
-static unsigned g_off_count    = 0x1490;   // manager -> 区条目数
-static unsigned g_entry_stride = 0x20;     // 每条目字节数
-static unsigned g_off_name     = 0x10;     // 区对象 -> 名字(内联)
-static unsigned g_off_pos      = 0xc8;     // 区对象 -> float[3] 位置
-static unsigned g_off_mcount   = 0x218;    // 区对象 -> 怪物数
+static unsigned g_rva_global   = 0xadd798;
+static unsigned g_off_list     = 0x1488;
+static unsigned g_off_count    = 0x1490;
+static unsigned g_entry_stride = 0x20;
+static unsigned g_off_name     = 0x10;
+static unsigned g_off_pos      = 0xc8;
+static unsigned g_off_mcount   = 0x218;
 
 template <typename T>
 static bool RD(uintptr_t addr, T* out) {
@@ -36,7 +21,6 @@ static bool RD(uintptr_t addr, T* out) {
     return g_api->safe_read(reinterpret_cast<const void*>(addr), out, sizeof(T)) != 0;
 }
 
-// 构建一份区列表文本。sink(line) 收每行(控制台 / 文件共用)。返回区条目数(-1=manager 空)。
 template <typename Sink>
 static long long BuildAreaReport(Sink sink) {
     char buf[256] = {};
@@ -56,7 +40,6 @@ static long long BuildAreaReport(Sink sink) {
                 (unsigned long long)manager, (unsigned long long)list, (unsigned long long)count);
     sink(buf);
 
-    // 诊断:区子系统门控标志 +0x2d24 + 管理器结构 hex(对比 field图 vs indoor图,定位区为何不注册)
     {
         unsigned char gate = 0xEE;
         RD<unsigned char>(manager + 0x2d24, &gate);
@@ -73,15 +56,15 @@ static long long BuildAreaReport(Sink sink) {
             _snprintf_s(line + p, sizeof(line) - p, _TRUNCATE, "\n");
             sink(line);
         };
-        hexdump(0x1480, 32, "list区");   // list@+1488 count@+1490 周边
-        hexdump(0x2d10, 32, "gate区");   // +2d24 门控周边
+        hexdump(0x1480, 32, "list区");
+        hexdump(0x2d10, 32, "gate区");
     }
 
     if (list == 0 || count == 0) {
         sink("[btl] area list is EMPTY in this context.\n");
         return 0;
     }
-    if (count > 512) count = 512; // 防垃圾值
+    if (count > 512) count = 512;
 
     for (uint64_t i = 0; i < count; ++i) {
         uintptr_t entry = list + i * g_entry_stride;
@@ -110,9 +93,6 @@ static long long BuildAreaReport(Sink sink) {
                     pos[0], pos[1], pos[2], mcount);
         sink(buf);
 
-        // 区怪列表(btl_start: 区对象+0x210=列表基址, +0x218=数量, 每槽0x18, 槽首=怪条目指针,
-        //   条目+0x28=怪id(ushort, 与 +0x1f4544 比对), +0x8=charid(short), +0x0=模型名指针)。
-        // 这个 +0x28 id 就是要喂给 Cmd_event_16 / 写入 +0x1f4544 的值。
         if (mcount > 0 && mcount <= 64) {
             uintptr_t mlist = 0;
             RD<uintptr_t>(obj + 0x210, &mlist);
@@ -143,8 +123,7 @@ static long long BuildAreaReport(Sink sink) {
     return (long long)count;
 }
 
-// 遭遇状态:DAT_140ad4e98(RVA 0xad4e98)-> +0x738 子对象 -> +0x1f4540 遭遇模式 / +0x1f4544 当前遭遇怪物id / +0x1f454c 标志。
-static unsigned g_rva_encmgr = 0xad4e98;
+static unsigned g_rva_encmgr = 0xae0d38;
 static unsigned g_off_encsub = 0x738;
 static unsigned g_off_encmode = 0x1f4540;
 static unsigned g_off_encmon  = 0x1f4544;
@@ -171,8 +150,6 @@ static void BuildEncounterReport(Sink sink) {
                 mode, (unsigned)mon, (unsigned)mon, (unsigned)flag);
     sink(buf);
 
-    // 场景禁用相关全局态: mgr(DAT_140ad4e98)+0x1ba0(int,FUN_1400ab7f0 早退检查) / +0x1ba4(byte,
-    //   FUN_14020ab60 场景暂停标志,非0=不处理场景=地图禁用)。+周边 hex 抓卡住的标志。
     int32_t f1ba0 = 0; uint8_t f1ba4 = 0;
     RD<int32_t>(mgr + 0x1ba0, &f1ba0);
     RD<uint8_t>(mgr + 0x1ba4, &f1ba4);
@@ -188,7 +165,6 @@ static void BuildEncounterReport(Sink sink) {
     }
     strcat_s(hexline, sizeof(hexline), "\n");
     sink(hexline);
-    // 遭遇子对象 +0x1f4540 区域周边 flag (mode/mon/flag 之外的状态字节)
     uint8_t sub2[24] = {};
     g_api->safe_read(reinterpret_cast<const void*>(sub + 0x1f4540), sub2, sizeof(sub2));
     char subline[200] = "[fld] sub+0x1f4540: ";
@@ -200,9 +176,7 @@ static void BuildEncounterReport(Sink sink) {
     sink(subline);
 }
 
-// 战场角色表(FUN_1402090b0 搜索的表):chara_mgr = *(*(DAT_140ad1908(RVA 0xad1908)+0xa0)+8)。
-// 遍历当前页所有角色,看事件怪 61550(原版)/61999(我们的)是否已实例化。
-static unsigned g_rva_chara_root = 0xad1908;
+static unsigned g_rva_chara_root = 0xadd7a8;
 template <typename Sink>
 static void BuildCharaReport(Sink sink) {
     char buf[512] = {};
@@ -241,8 +215,6 @@ static void BuildCharaReport(Sink sink) {
                 found550, found999, ids);
     sink(buf);
 
-    // 战斗/事件角色列表 DAT_140ad4e98(0xad4e98)+0x200(ptr)/+0x208(count);每项->角色,角色+0x190=id。
-    // 这是 event_entry_chr / btl_start 真正用的列表(FUN_140244fa0)。
     uintptr_t emgr = 0;
     if (!RD<uintptr_t>(base + g_rva_encmgr, &emgr) || emgr == 0) { sink("[chara2] enc-mgr null\n"); return; }
     uintptr_t elist = 0; uint64_t ecount = 0;
@@ -269,9 +241,6 @@ static void BuildCharaReport(Sink sink) {
     sink(buf);
 }
 
-// 完整野外角色表(FUN_1402090b0 搜索的表)dump:每条 id(short0) + 事件名(+0x8) + 脚本名(+0x38)
-//   + flag(+0x30) + (+0x42)。用来定位我们 mon5040 的运行时 id(喂 Cmd_event_16/FUN_14020bcd0)。
-//   只打印 +0x8 或 +0x38 字符串非空可打印的条目(过滤掉空槽)。
 static void ReadCStr(uintptr_t p, char* out, size_t n) {
     out[0] = '\0';
     if (p < 0x10000) return;
@@ -314,7 +283,7 @@ static void BuildFieldCharFullDump(Sink sink) {
         char evt[48] = {}, scr[48] = {};
         ReadCStr(pevt, evt, sizeof(evt));
         ReadCStr(pscr, scr, sizeof(scr));
-        if (evt[0] == '\0' && scr[0] == '\0') continue; // 跳过空槽
+        if (evt[0] == '\0' && scr[0] == '\0') continue;
         _snprintf_s(buf, sizeof(buf), _TRUNCATE,
                     "  [%u] id=%u(0x%x) f30=%u f42=%u evt=\"%s\" scr=\"%s\"\n",
                     i, (unsigned)id, (unsigned)id, (unsigned)f30, (unsigned)f42, evt, scr);
@@ -330,7 +299,6 @@ static void DumpAreas() {
     BuildCharaReport([](const char* s) { g_api->console_print(s); });
 }
 
-// 后台自动 dump 到文件(无需控制台输入即可观测)。
 static volatile bool g_running = false;
 static unsigned g_poll_ms = 1500;
 
@@ -392,7 +360,6 @@ extern "C" __declspec(dllexport) void Plugin_Load(const Ed9Api* api) {
         api->register_command("-btl", "dump active battle-area list (usage: -btl list)", Cmd_Btl);
     }
 
-    // 后台自动 dump 到 ED9Loader/BattleProbe.areas.txt(无需控制台输入)
     g_running = true;
     CreateThread(nullptr, 0, ThreadMain, nullptr, 0, nullptr);
 }

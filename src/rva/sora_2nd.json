@@ -1,0 +1,77 @@
+{
+ "schema": 1,
+ "exe": {
+  "name": "sora_2nd.exe",
+  "size": 13464576,
+  "timestamp": 1789715731,
+  "sha1_head": "65fc4d89768b8c6e"
+ },
+ "ref_exe": {
+  "name": "sora_2nd.exe",
+  "size": 13463552,
+  "timestamp": 1789523450,
+  "sha1_head": "984523adf14f804b"
+ },
+ "reflect_only": {
+  "MemoryStream_vftable": "find_vtable(\"MemoryStream@fdk\")",
+  "MemoryManager": "find_vtable(\"MemoryManager@fdk\") + find_instance"
+ },
+ "symbols": {
+  "FileStream_Open": {
+   "rva": 6637120,
+   "confidence": "high",
+   "score": 0.981,
+   "lead": 0.932,
+   "ref_len": 913,
+   "len": 913
+  },
+  "FindFile": {
+   "rva": 5954432,
+   "confidence": "high",
+   "score": 0.975,
+   "lead": 0.862,
+   "ref_len": 128,
+   "len": 128
+  },
+  "engine_alloc": {
+   "rva": 6070464,
+   "confidence": "high",
+   "score": 0.975,
+   "lead": 0.433,
+   "ref_len": 52,
+   "len": 52
+  },
+  "LoadScript": {
+   "rva": 2780880,
+   "confidence": "high",
+   "score": 0.97,
+   "lead": 0.882,
+   "ref_len": 237,
+   "len": 237
+  },
+  "MonsLoad": {
+   "rva": 2420416,
+   "confidence": "medium",
+   "score": 0.947,
+   "lead": 0.0,
+   "ref_len": 327,
+   "len": 327
+  },
+  "AreaProc": {
+   "rva": 0,
+   "confidence": "failed"
+  },
+  "AreaRegister": {
+   "rva": 0,
+   "confidence": "failed"
+  },
+  "SpawnEvent": {
+   "rva": 2456352,
+   "confidence": "medium",
+   "score": 1.0,
+   "lead": 0.569,
+   "ref_len": 58,
+   "len": 58
+  }
+ }
+}

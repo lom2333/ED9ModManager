@@ -8,7 +8,6 @@ namespace modkit {
 
 std::string PatchConfig::MapName() const {
     if (!map.empty()) return map;
-    // target "mp4000_sys" -> "mp4000"
     const std::string suffix = "_sys";
     if (target.size() > suffix.size() && target.compare(target.size() - suffix.size(), suffix.size(), suffix) == 0)
         return target.substr(0, target.size() - suffix.size());
@@ -25,7 +24,6 @@ bool LoadPatchConfig(const std::wstring& path, PatchConfig& out, std::string& er
     out.mod = j.value("_mod", std::string());
     out.target = j.value("target", std::string());
     out.map = j.value("map", std::string());
-    // target 可省:调用方(scene_add_json\<target>.json)按文件名推断后回填。map 空时 MapName() 从 target 去 _sys 推断。
 
     if (j.contains("add_actors") && j["add_actors"].is_array()) {
         for (const auto& a : j["add_actors"]) {
@@ -41,7 +39,6 @@ bool LoadPatchConfig(const std::wstring& path, PatchConfig& out, std::string& er
             }
             if (a.contains("lp_radius")) { act.hasLpRadius = true; act.lpRadius = a["lp_radius"].get<double>(); }
             if (a.contains("lp_height")) { act.hasLpHeight = true; act.lpHeight = a["lp_height"].get<double>(); }
-            // 其余键 → 通用字段覆盖(scale/rotation/btl_height/... 等任意 actor 字段);跳过已类型化处理的键与 _ 注释键
             if (a.is_object())
                 for (auto it = a.begin(); it != a.end(); ++it) {
                     const std::string& k = it.key();
@@ -56,5 +53,5 @@ bool LoadPatchConfig(const std::wstring& path, PatchConfig& out, std::string& er
     return true;
 }
 
-} // namespace modkit
-} // namespace ed9loader
+}
+}

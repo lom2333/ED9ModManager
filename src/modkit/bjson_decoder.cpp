@@ -9,7 +9,6 @@ static uint32_t u32le(const std::vector<uint8_t>& d, size_t o) { uint32_t v; std
 static uint64_t u64le(const std::vector<uint8_t>& d, size_t o) { uint64_t v; std::memcpy(&v, d.data() + o, 8); return v; }
 static double   f64le(const std::vector<uint8_t>& d, size_t o) { double v; std::memcpy(&v, d.data() + o, 8); return v; }
 
-// 从 off 找下一个 \0(限 [off,limit)),返回其位置;找不到返回 SIZE_MAX
 static size_t findNul(const std::vector<uint8_t>& d, size_t off, size_t limit) {
     for (size_t i = off; i < limit && i < d.size(); ++i) if (d[i] == 0) return i;
     return SIZE_MAX;
@@ -24,7 +23,6 @@ bool BjsonDecoder::Parse(std::vector<uint8_t> data) {
     nameTableEnd_ = nameTableHashStart_ + 4;
     if (nameTableEnd_ > data_.size()) return fail("name table end past EOF");
 
-    // name 表 @ 0x18
     size_t off = 0x18; uint32_t index = 0;
     while (off < nameTableEnd_) {
         size_t end = findNul(data_, off, (size_t)nameTableEnd_);
@@ -105,7 +103,7 @@ BjNode BjsonDecoder::parseAt(uint32_t offset) {
     }
     case BJ_PACKED_ID: {
         n.pidPrimary = ((uint32_t)data_[offset + 1] << 24) | ((uint32_t)data_[offset + 2] << 16)
-                     | ((uint32_t)data_[offset + 3] << 8) | (uint32_t)data_[offset + 4]; // big-endian
+                     | ((uint32_t)data_[offset + 3] << 8) | (uint32_t)data_[offset + 4];
         n.pidAux = u32le(data_, offset + 5);
         n.size = 9;
         break;
@@ -118,7 +116,7 @@ BjNode BjsonDecoder::parseAt(uint32_t offset) {
         break;
     }
     default:
-        n.size = 1; // unknown
+        n.size = 1;
         break;
     }
     return n;
@@ -150,5 +148,5 @@ bool BjsonDecoder::FindNamedChild(const BjNode& obj, const std::string& name, ui
     return false;
 }
 
-} // namespace modkit
-} // namespace ed9loader
+}
+}

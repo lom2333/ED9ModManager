@@ -1,0 +1,34 @@
+# 构建产物 / 发布产物
+/build/
+/out/
+/dist/
+/Releases/
+[Bb]uild/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+
+# 编译中间/输出
+*.obj
+*.o
+*.exe
+*.dll
+*.lib
+*.exp
+*.pdb
+*.ilk
+*.res
+*.log
+
+# IDE
+.vs/
+.vscode/
+.idea/
+
+# 系统
+Thumbs.db
+Desktop.ini

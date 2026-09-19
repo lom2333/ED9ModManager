@@ -4,6 +4,7 @@
 #include "ed9loader_api.h"
 #include "runtime_locator.h"
 #include "safe_scan.h"
+#include "symbol_table.h"
 #include "modkit/mod_merge_orchestrator.h"
 
 #include <MinHook.h>
@@ -29,7 +30,6 @@ std::mutex g_log_mutex;
     return std::filesystem::path(buffer).parent_path();
 }
 
-// ---- 终端镜像:日志同步到一个控制台窗口(默认开;ED9Loader/config/ED9Loader.ini [Settings] console=0 关)----
 bool g_console_ready = false;
 
 void EnsureConsole() {
@@ -38,12 +38,11 @@ void EnsureConsole() {
     std::filesystem::create_directories(cfg_dir, error);
     const auto ini = (cfg_dir / "ED9Loader.ini").string();
     if (!std::filesystem::exists(ini, error)) {
-        WritePrivateProfileStringA("Settings", "console", "1", ini.c_str());  // 写出默认,便于发现可关
+        WritePrivateProfileStringA("Settings", "console", "1", ini.c_str());
     }
     if (GetPrivateProfileIntA("Settings", "console", 1, ini.c_str()) == 0) {
-        return;  // 用户关闭:只写文件,不开终端
+        return;
     }
-    // 从终端启动则附加父控制台,否则新建一个窗口
     bool created_own = false;
     if (AttachConsole(ATTACH_PARENT_PROCESS) == FALSE) {
         created_own = (AllocConsole() != FALSE);
@@ -51,7 +50,6 @@ void EnsureConsole() {
     SetConsoleOutputCP(CP_UTF8);
     if (created_own) {
         SetConsoleTitleW(L"ED9Loader 日志");
-        // 自建窗口才设字体(附加到用户终端时不动其字体);用 CJK 字体保证中文不显示为方块
         CONSOLE_FONT_INFOEX fi = {};
         fi.cbSize = sizeof(fi);
         fi.dwFontSize.Y = 16;
@@ -92,10 +90,9 @@ void WriteLog(const std::string& line) {
         file << line << "\n";
         file.flush();
     }
-    ConsoleWrite(line);  // 同步镜像到终端
+    ConsoleWrite(line);
 }
 
-// ---- Ed9Api 实现 ----
 void ApiLog(const char* msg) {
     if (msg != nullptr) {
         WriteLog(std::string("  [plugin] ") + msg);
@@ -106,7 +103,6 @@ void* ApiGetModuleBase() {
     return reinterpret_cast<void*>(GetModuleHandleW(nullptr));
 }
 
-// MinHook 封装:创建并启用一个 inline hook。返回 0 成功。
 int ApiInstallHook(void* target, void* detour, void** original) {
     if (target == nullptr || detour == nullptr) {
         return -1;
@@ -120,7 +116,6 @@ int ApiInstallHook(void* target, void* detour, void** original) {
     return 0;
 }
 
-// ---- v3: 定位 + 安全内存读写(复用 runtime_locator / safe_scan)----
 void* ApiFindVtable(const char* type_fragment) {
     if (type_fragment == nullptr) {
         return nullptr;
@@ -136,7 +131,6 @@ int ApiSafeWrite(void* addr, const void* src, unsigned long size) {
     return sora_console::safe_scan::SafeWriteBytes(reinterpret_cast<std::uintptr_t>(addr), src, size) ? 1 : 0;
 }
 
-// ---- v4: 配置(Windows 原生 INI API,文件 ED9Loader/config/<cfg_name>.ini)----
 [[nodiscard]] std::string CfgPathStr(const char* cfg_name) {
     return (ExeDir() / "ED9Loader" / "config" / (std::string(cfg_name) + ".ini")).string();
 }
@@ -178,7 +172,6 @@ void ApiCfgSetStr(const char* cfg_name, const char* key, const char* value) {
     WritePrivateProfileStringA("Settings", key, value != nullptr ? value : "", CfgPathStr(cfg_name).c_str());
 }
 
-// ---- v5: 单例实例定位(复用 runtime_locator 的 .data 扫描)----
 void* ApiFindInstance(void* vtable) {
     if (vtable == nullptr) {
         return nullptr;
@@ -187,7 +180,6 @@ void* ApiFindInstance(void* vtable) {
         sora_console::runtime_locator::FindInstanceByVtable(reinterpret_cast<std::uintptr_t>(vtable)));
 }
 
-// ---- v6: 控制台命令(转交 command_console)----
 int ApiRegisterCommand(const char* name, const char* help, Ed9CommandFn fn) {
     if (name == nullptr || fn == nullptr) {
         return -1;
@@ -199,6 +191,10 @@ int ApiRegisterCommand(const char* name, const char* help, Ed9CommandFn fn) {
 
 void ApiConsolePrint(const char* msg) {
     sora_console::command_console::ConsolePrint(msg);
+}
+
+void* ApiResolveSymbol(const char* name) {
+    return reinterpret_cast<void*>(sora_console::symbol_table::Resolve(name));
 }
 
 Ed9Api g_api = {
@@ -216,6 +212,7 @@ Ed9Api g_api = {
     ApiFindInstance,
     ApiRegisterCommand,
     ApiConsolePrint,
+    ApiResolveSymbol,
 };
 
 [[nodiscard]] std::string SafeName(const std::filesystem::path& path) {
@@ -227,18 +224,20 @@ Ed9Api g_api = {
 }
 
 void DoLoadAll() {
-    EnsureConsole();  // 先开终端镜像,后面所有 WriteLog 同步显示
-    const auto plugins_dir = ExeDir() / "ED9Loader" / "plugins";  // 插件目录统一收进 ED9Loader\(与 cache/config/schemas 同级)
+    EnsureConsole();
+    const auto plugins_dir = ExeDir() / "ED9Loader" / "plugins";
     WriteLog("==== ED9Loader start (abi=" + std::to_string(ED9LOADER_ABI_VERSION) + ") ====");
 
-    // ---- modkit:启动时自动合并 mod 资源(扫 Mod\<mod>\* → ED9Loader\cache\merged)----
     try {
         const auto paths = modkit::orchestrator::FromGameDir(ExeDir().wstring());
-        const auto result = modkit::orchestrator::Run(paths, /*force*/ false);
+        const auto result = modkit::orchestrator::Run(paths, false);
         WriteLog(result.log);
     } catch (...) {
         WriteLog("[modkit] orchestrator threw, skipped");
     }
+
+    sora_console::symbol_table::Load();
+    WriteLog(std::string("[symbols] ") + sora_console::symbol_table::StatusText());
 
     const MH_STATUS mh = MH_Initialize();
     WriteLog(std::string("MinHook init: ") +
@@ -290,11 +289,11 @@ void DoLoadAll() {
     WriteLog("==== done: found=" + std::to_string(found) + " loaded=" + std::to_string(loaded) + " ====");
 }
 
-}  // namespace
+}
 
 void LoadAll() {
     static std::once_flag once;
     std::call_once(once, DoLoadAll);
 }
 
-}  // namespace ed9loader::plugin_loader
+}

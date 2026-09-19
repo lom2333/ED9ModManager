@@ -70,7 +70,6 @@ void HandleCommand(const std::string& line) {
         return;
     }
 
-    // 插件注册的命令
     CommandFn fn = nullptr;
     {
         std::scoped_lock lock(g_cmd_mutex);
@@ -107,13 +106,10 @@ void AttachConsoleStreams() {
 }
 
 void ConsoleThreadMain() {
-    // 控制台已由 plugin_loader 的 EnsureConsole 按 ini 决定是否创建(本线程在 LoadAll 之后才启动)。
-    // 这里只接管「输入」:有控制台 → 把 stdin 接上、跑输入循环;没有(用户在 ini 里关了 console)→ 退出。
-    // ⚠ 旧代码自己 AllocConsole——但 EnsureConsole 已先建控制台,AllocConsole 必失败 return,导致输入循环从不运行(终端打不了字)。
     if (GetConsoleWindow() == nullptr) {
         return;
     }
-    AttachConsoleStreams();   // freopen CONIN$/CONOUT$ → 把 std::cin 接到现有控制台,getline 才能读到输入
+    AttachConsoleStreams();
 
     std::cout << "[ED9Loader] console ready (可输入命令,如 -get pos)\n";
     PrintHelp();
@@ -133,7 +129,7 @@ void ConsoleThreadMain() {
     std::cout << "[ED9Loader] console shutting down\n";
 }
 
-}  // namespace
+}
 
 void Start() {
     std::call_once(g_start_once, []() {
@@ -156,4 +152,4 @@ void ConsolePrint(const char* msg) {
     }
 }
 
-}  // namespace sora_console::command_console
+}

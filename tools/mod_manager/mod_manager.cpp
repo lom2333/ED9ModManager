@@ -1,14 +1,21 @@
 #include "imgui.h"
+#include "imgui_internal.h"
 #include "backends/imgui_impl_win32.h"
 #include "backends/imgui_impl_dx11.h"
 #include "modkit/mod_merge_orchestrator.h"
 #include "modkit/generic_tbl.h"
 #include "ed9_dat.hpp"
 #include "json.hpp"
+#include "miniz.h"
+#include "modkit/mod_archive.h"
+#include "modkit/dds_crypt.h"
+#include "modkit/fpac_reader.h"
+#include "modkit/fpac_writer.h"
 
 #include <d3d11.h>
 #include <wincodec.h>
 #include <windows.h>
+#include <winhttp.h>
 #include <shlobj.h>
 #include <shobjidl.h>
 #include <commdlg.h>
@@ -17,23 +24,140 @@
 #include "resource.h"
 
 #include <algorithm>
+#include <atomic>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <mutex>
 #include <set>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace fs = std::filesystem;
 namespace orch = ed9loader::modkit::orchestrator;
 namespace mk = ed9loader::modkit;
+namespace ddsc = ed9loader::modkit::ddscrypt;
 using json = nlohmann::json;
 using ojson = nlohmann::ordered_json;
 
 static float g_dpiScale = 1.0f;
+
+static const char* kVersion = "1.0.8";
+static const wchar_t* kUpdateHost = L"api.github.com";
+static const wchar_t* kUpdatePath = L"/repos/lom2333/ED9ModManager/releases/latest";
+
+struct UpdateState {
+    std::atomic<int>       phase{0};
+    std::atomic<long long> dlDone{0}, dlTotal{0};
+    std::mutex             mtx;
+    std::string            latest;
+    std::string            url;
+    std::string            assetName;
+    std::string            err;
+    std::wstring           dlPath;
+    bool                   popupOpened   = false;
+    bool                   dlPopupOpened = false;
+    bool                   dismissed     = false;
+    std::atomic<bool>      manual{false};
+    bool                   manualPopupOpened = false;
+    bool                   restartLaunched = false;
+};
+static UpdateState g_upd;
+
+static int cmpVersion(const std::string& a, const std::string& b) {
+    auto parse = [](const std::string& s) {
+        std::vector<int> v; int cur = 0; bool inNum = false;
+        size_t i = 0; while (i < s.size() && !(s[i] >= '0' && s[i] <= '9')) ++i;
+        for (; i < s.size(); ++i) {
+            char c = s[i];
+            if (c >= '0' && c <= '9') { cur = cur * 10 + (c - '0'); inNum = true; }
+            else if (c == '.') { v.push_back(cur); cur = 0; inNum = false; }
+            else break;
+        }
+        v.push_back(cur);
+        return v;
+    };
+    std::vector<int> va = parse(a), vb = parse(b);
+    size_t n = va.size() > vb.size() ? va.size() : vb.size();
+    for (size_t i = 0; i < n; ++i) {
+        int x = i < va.size() ? va[i] : 0, y = i < vb.size() ? vb[i] : 0;
+        if (x != y) return x < y ? -1 : 1;
+    }
+    return 0;
+}
+
+static bool httpsGet(const wchar_t* host, const wchar_t* path, std::string& body, std::string& err) {
+    HINTERNET hs = WinHttpOpen(L"ED9ModManager", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
+                               WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!hs) { err = "WinHttpOpen 失败"; return false; }
+    WinHttpSetTimeouts(hs, 8000, 8000, 8000, 8000);
+    HINTERNET hc = WinHttpConnect(hs, host, INTERNET_DEFAULT_HTTPS_PORT, 0);
+    HINTERNET hr = nullptr;
+    bool ok = false;
+    do {
+        if (!hc) { err = "连接失败"; break; }
+        hr = WinHttpOpenRequest(hc, L"GET", path, nullptr, WINHTTP_NO_REFERER,
+                                WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
+        if (!hr) { err = "创建请求失败"; break; }
+        const wchar_t* hdr = L"Accept: application/vnd.github+json\r\n";
+        if (!WinHttpSendRequest(hr, hdr, (DWORD)-1L, WINHTTP_NO_REQUEST_DATA, 0, 0, 0)) { err = "发送失败"; break; }
+        if (!WinHttpReceiveResponse(hr, nullptr)) { err = "无响应"; break; }
+        DWORD code = 0, len = sizeof(code);
+        WinHttpQueryHeaders(hr, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                            WINHTTP_HEADER_NAME_BY_INDEX, &code, &len, WINHTTP_NO_HEADER_INDEX);
+        if (code == 404) { err = "no-release"; break; }
+        if (code != 200) { char b[48]; snprintf(b, sizeof b, "HTTP %lu", code); err = b; break; }
+        DWORD avail = 0;
+        do {
+            avail = 0;
+            if (!WinHttpQueryDataAvailable(hr, &avail) || avail == 0) break;
+            std::vector<char> buf(avail);
+            DWORD rd = 0;
+            if (!WinHttpReadData(hr, buf.data(), avail, &rd) || rd == 0) break;
+            body.append(buf.data(), rd);
+        } while (avail > 0);
+        ok = true;
+    } while (false);
+    if (hr) WinHttpCloseHandle(hr);
+    if (hc) WinHttpCloseHandle(hc);
+    WinHttpCloseHandle(hs);
+    return ok;
+}
+
+static void doUpdateCheck() {
+    g_upd.phase = 1;
+    std::string body, err;
+    if (!httpsGet(kUpdateHost, kUpdatePath, body, err)) {
+        std::lock_guard<std::mutex> lk(g_upd.mtx);
+        if (err == "no-release") { g_upd.phase = 2; return; }
+        g_upd.err = err; g_upd.phase = 4; return;
+    }
+    try {
+        auto j = nlohmann::json::parse(body);
+        std::string tag = j.value("tag_name", std::string());
+        std::string url, name;
+        if (j.contains("assets") && j["assets"].is_array()) {
+            for (auto& a : j["assets"]) {
+                std::string n = a.value("name", std::string());
+                if (n.size() >= 4 && n.compare(n.size() - 4, 4, ".zip") == 0) {
+                    url = a.value("browser_download_url", std::string()); name = n; break;
+                }
+            }
+        }
+        std::lock_guard<std::mutex> lk(g_upd.mtx);
+        g_upd.latest = tag; g_upd.url = url; g_upd.assetName = name;
+        g_upd.phase = (!tag.empty() && cmpVersion(kVersion, tag) < 0) ? 3 : 2;
+    } catch (...) {
+        std::lock_guard<std::mutex> lk(g_upd.mtx);
+        g_upd.err = "解析响应失败"; g_upd.phase = 4;
+    }
+}
+static void startUpdateCheck() { std::thread(doUpdateCheck).detach(); }
 
 static std::string ws2utf8(const std::wstring& w) {
     if (w.empty()) return {};
@@ -65,6 +189,13 @@ struct ModComp {
     std::string disp;
 };
 
+struct AudioGroup {
+    std::string ns;
+    std::string name;
+    std::string rel;
+    int files = 0;
+};
+
 struct AssetRow {
     std::string rel;
     std::vector<std::string> providers;
@@ -75,6 +206,12 @@ struct AssetRow {
 struct App {
     char gameDir[1024] = {};
     std::vector<orch::ModInfo> mods;
+    std::string gameId;
+    std::map<std::string, std::string> modGame;
+    bool showBadGamePopup = false;
+    std::vector<std::string> badGameMods;
+    std::string enableWarnMod;
+    bool showEnableWarn = false;
     json report;
     bool hasReport = false;
     std::string status = "就绪。设置游戏目录后会自动扫描,并持续监听 Mod 目录变动。";
@@ -82,6 +219,7 @@ struct App {
     bool busy = false;
     int funcView = 0;
     bool showSettings = false;
+    bool showChangelog = false;
     int settingsCat = 0;
     int selMod = -1;
     int rightView = 1;
@@ -90,6 +228,7 @@ struct App {
     float funcSegAnim = 0.0f;  bool funcSegDrag = false;
     float convSegAnim = 0.0f;  bool convSegDrag = false;
     float datSegAnim  = 0.0f;  bool datSegDrag  = false;
+    float ddsSegAnim  = 0.0f;  bool ddsSegDrag  = false;
     std::map<std::string, float> btnAnim;
     std::vector<ModComp> comps;
     std::string compsFor;
@@ -101,6 +240,7 @@ struct App {
     float modAllOnAnim = 0.0f, modAllOffAnim = 0.0f;
     int   cfgLastFrame = -1;
     std::vector<AssetRow> selAssets;
+    std::vector<AudioGroup> audioGroups;
     std::set<std::string> conflictMods;
     std::set<std::string> errorMods;
     std::string conflictSig;
@@ -112,6 +252,12 @@ struct App {
     std::vector<std::wstring> datFiles;
     char datOutDir[1024] = {};
     std::string datStatus;
+    int ddsMode = 0;
+    std::vector<std::wstring> ddsFiles;
+    char ddsOutDir[1024] = {};
+    std::string ddsStatus;
+    std::vector<std::string> ddsLog;
+    bool ddsOverwrite = false;
     HANDLE watchH = INVALID_HANDLE_VALUE;
     std::wstring watchDir;
     unsigned long long watchRetryAt = 0;
@@ -193,18 +339,147 @@ static void saveIniGameDir(const App& a) {
 }
 
 static fs::path modsDirOf(const App& a) { return fs::path(utf82ws(a.gameDir)) / L"Mod"; }
+static fs::path modRootOf(const App& a, const std::string& modName) {
+    return fs::path(orch::ModRoot(modsDirOf(a).wstring(), modName));
+}
 static fs::path reportPathOf(const App& a) { return fs::path(utf82ws(a.gameDir)) / L"ED9Loader" / L"cache" / L"merge_report.json"; }
+
+struct GameDef { const char* id; const wchar_t* exe; const char* disp; };
+static const GameDef kGames[] = {
+    { "sora_1st", L"sora_1st.exe", "空之轨迹 the 1st" },
+    { "sora_2nd", L"sora_2nd.exe", "空之轨迹 the 2nd" },
+};
+
+static std::string detectGameId(const char* gameDirUtf8) {
+    if (gameDirUtf8 == nullptr || gameDirUtf8[0] == 0) return {};
+    fs::path root = utf82ws(gameDirUtf8);
+    std::error_code ec;
+    for (const auto& g : kGames)
+        if (fs::exists(root / g.exe, ec)) return g.id;
+    return {};
+}
+static const char* gameDisplay(const std::string& id) {
+    for (const auto& g : kGames) if (id == g.id) return g.disp;
+    return "";
+}
+static fs::path modMetaPath(const App& a, const std::string& modName) {
+    return modRootOf(a, modName) / L"mod.json";
+}
+static std::string readModGameDeclared(const App& a, const std::string& modName) {
+    json j;
+    if (!readJson(modMetaPath(a, modName), j) || !j.is_object()) return {};
+    std::string g = j.value("game", std::string());
+    if (g == "any") return {};
+    for (const auto& gd : kGames) if (g == gd.id) return g;
+    return {};
+}
+
+static bool tblHeadInfo(const fs::path& p, std::string& table, uint32_t& rowLen) {
+    std::ifstream f(p, std::ios::binary);
+    if (!f) return false;
+    char hdr[8 + 80] = {};
+    f.read(hdr, sizeof hdr);
+    if (f.gcount() < (std::streamsize)sizeof hdr) return false;
+    if (memcmp(hdr, "#TBL", 4) != 0) return false;
+    table.assign(hdr + 8, strnlen(hdr + 8, 64));
+    memcpy(&rowLen, hdr + 8 + 64 + 8, 4);
+    return !table.empty() && rowLen > 0;
+}
+
+struct ModGameGuess { std::string game; int votes1 = 0, votes2 = 0; bool conflict = false; };
+static ModGameGuess inferModGame(const App& a, const std::string& modName) {
+    ModGameGuess g;
+    const fs::path root = modRootOf(a, modName);
+    std::error_code ec;
+    if (!fs::is_directory(root, ec)) return g;
+
+    auto vote = [&](const std::string& who) {
+        if (who == "sora_1st") ++g.votes1;
+        else if (who == "sora_2nd") ++g.votes2;
+    };
+    std::vector<fs::path> roots;
+    for (const wchar_t* sub : { L"tbl", L"table" }) {
+        fs::path d = root / sub;
+        if (fs::is_directory(d, ec)) roots.push_back(d);
+    }
+    if (roots.empty()) return g;
+    std::vector<fs::path> files;
+    for (const auto& r : roots)
+        for (fs::recursive_directory_iterator it(r, fs::directory_options::skip_permission_denied, ec), end;
+             !ec && it != end; it.increment(ec))
+            if (it->is_regular_file(ec)) files.push_back(it->path());
+
+    for (const fs::path& p : files) {
+        const std::wstring ext = p.extension().wstring();
+        if (ext == L".tbl") {
+            std::string t; uint32_t len = 0;
+            if (tblHeadInfo(p, t, len)) vote(mk::TblVariantGame(t, len));
+        } else if (ext == L".json") {
+            json j;
+            if (!readJson(p, j) || !j.is_object() || !j.contains("table")) continue;
+            if (!j["table"].is_string()) continue;
+            const std::string t = j["table"].get<std::string>();
+            if (j.contains("row_length") && j["row_length"].is_number_unsigned()) {
+                vote(mk::TblVariantGame(t, j["row_length"].get<uint32_t>()));
+                continue;
+            }
+            std::vector<std::string> names;
+            auto collect = [&names](const json& o) {
+                if (!o.is_object()) return;
+                for (auto f = o.begin(); f != o.end(); ++f)
+                    if (!f.key().empty() && f.key()[0] != '_') names.push_back(f.key());
+            };
+            for (const char* sec : { "add_rows", "edit_rows", "clone_rows" }) {
+                if (!j.contains(sec) || !j[sec].is_array()) continue;
+                for (const auto& r : j[sec]) {
+                    if (!r.is_object()) continue;
+                    if (r.contains("set") || r.contains("match")) {
+                        collect(r.value("match", json::object()));
+                        collect(r.value("set", json::object()));
+                    } else {
+                        collect(r);
+                    }
+                }
+            }
+            vote(mk::TblGameByFieldNames(t, names));
+        }
+    }
+    if (g.votes1 > 0 && g.votes2 > 0) { g.conflict = true; g.game = (g.votes1 >= g.votes2) ? "sora_1st" : "sora_2nd"; }
+    else if (g.votes1 > 0) g.game = "sora_1st";
+    else if (g.votes2 > 0) g.game = "sora_2nd";
+    return g;
+}
+
+static std::string resolveModGame(const App& a, const std::string& modName, ModGameGuess* out = nullptr) {
+    const std::string decl = readModGameDeclared(a, modName);
+    ModGameGuess g = inferModGame(a, modName);
+    if (out) *out = g;
+    return decl.empty() ? g.game : decl;
+}
 
 static void loadReport(App& a) {
     a.hasReport = readJson(reportPathOf(a), a.report);
 }
 static void refresh(App& a) {
     if (a.gameDir[0] == 0) { a.status = "请先填游戏目录。"; return; }
+    a.gameId = detectGameId(a.gameDir);
+    {
+      std::string alog;
+      ed9loader::modkit::archive::EnsureAllStaged(modsDirOf(a), alog);
+    }
     a.mods = orch::ScanMods(modsDirOf(a).wstring());
+    a.modGame.clear();
+    for (const auto& m : a.mods) a.modGame[m.name] = resolveModGame(a, m.name);
     a.selMod = -1; a.compsFor.clear(); a.comps.clear();
     a.conflictSig.clear();
     loadReport(a);
-    a.status = "已扫描:" + std::to_string(a.mods.size()) + " 个 mod";
+    int mismatch = 0;
+    for (const auto& m : a.mods) {
+        const std::string& g = a.modGame[m.name];
+        if (!g.empty() && !a.gameId.empty() && g != a.gameId) ++mismatch;
+    }
+    a.status = "已扫描:" + std::to_string(a.mods.size()) + " 个 mod" +
+               (mismatch ? ("(其中 " + std::to_string(mismatch) + " 个不适用于当前游戏)") : "");
 }
 
 static void closeWatch(App& a) {
@@ -232,6 +507,8 @@ static void autoRescan(App& a) {
 
     a.compsFor.clear();
     a.conflictSig.clear();
+    a.modGame.clear();
+    for (const auto& m : a.mods) a.modGame[m.name] = resolveModGame(a, m.name);
     loadReport(a);
     if (changed) a.status = "检测到 Mod 目录变动,已自动重扫:" + std::to_string(a.mods.size()) + " 个 mod";
 }
@@ -356,7 +633,7 @@ static std::vector<ModComp> scanModComponents(const App& a, const std::string& m
         { L"tbl/kr", "tbl/kr", "[韩] " },
     };
     for (const Folder& f : kFolders) {
-        fs::path d = modsDirOf(a) / utf82ws(modName) / f.sub;
+        fs::path d = modRootOf(a, modName) / f.sub;
         if (!fs::is_directory(d, ec)) continue;
         std::vector<fs::path> tfs;
         for (const auto& e : fs::directory_iterator(d, ec))
@@ -371,7 +648,7 @@ static std::vector<ModComp> scanModComponents(const App& a, const std::string& m
 static std::vector<std::string> scanModAssetRels(const App& a, const std::string& modName) {
     std::vector<std::string> out;
     std::error_code ec;
-    fs::path assetDir = modsDirOf(a) / utf82ws(modName) / L"asset";
+    fs::path assetDir = modRootOf(a, modName) / L"asset";
     if (!fs::is_directory(assetDir, ec)) return out;
     for (auto it = fs::recursive_directory_iterator(assetDir, ec); it != fs::recursive_directory_iterator(); it.increment(ec)) {
         if (ec) break;
@@ -380,6 +657,32 @@ static std::vector<std::string> scanModAssetRels(const App& a, const std::string
     }
     std::sort(out.begin(), out.end());
     return out;
+}
+
+static void scanAudioGroups(App& a, const std::string& modName) {
+    a.audioGroups.clear();
+    const fs::path root = modRootOf(a, modName);
+    std::error_code ec;
+    for (const char* ns : { "voice", "se", "bgm1", "bgm2", "bgm3" }) {
+        fs::path nsDir = root / ns;
+        if (!fs::is_directory(nsDir, ec)) continue;
+        for (fs::directory_iterator de(nsDir, ec), end; !ec && de != end; de.increment(ec)) {
+            std::error_code e2;
+            if (!de->is_directory(e2)) continue;
+            const std::string gname = ws2utf8(de->path().filename().wstring());
+            if (gname == "wav") continue;
+            int n = 0;
+            for (fs::recursive_directory_iterator it(de->path(), ec), rend; !ec && it != rend; it.increment(ec))
+                if (it->is_regular_file(e2)) ++n;
+            AudioGroup g;
+            g.ns = ns; g.name = gname; g.rel = std::string(ns) + "/" + gname; g.files = n;
+            a.audioGroups.push_back(std::move(g));
+        }
+    }
+    std::sort(a.audioGroups.begin(), a.audioGroups.end(),
+              [](const AudioGroup& x, const AudioGroup& y) {
+                  return x.ns != y.ns ? x.ns < y.ns : x.name < y.name;
+              });
 }
 
 static void computeSelAssets(App& a, const std::string& modName) {
@@ -422,6 +725,21 @@ static void updateLeftIndicators(App& a) {
 
 static void doMerge(App& a) {
     if (a.gameDir[0] == 0) { a.status = "请先填游戏目录。"; return; }
+    {
+        std::vector<std::string> bad;
+        for (const auto& m : a.mods) {
+            if (!m.enabled) continue;
+            auto it = a.modGame.find(m.name);
+            const std::string g = (it != a.modGame.end()) ? it->second : std::string();
+            if (!g.empty() && !a.gameId.empty() && g != a.gameId) bad.push_back(m.name);
+        }
+        if (!bad.empty()) {
+            a.badGameMods = bad;
+            a.showBadGamePopup = true;
+            a.status = T("有 MOD 的适用作品与当前游戏不符,已中止合并");
+            return;
+        }
+    }
     if (!orch::SaveMods(modsDirOf(a).wstring(), a.mods)) { a.status = "写 mods.json 失败(目录不可写?)"; return; }
     orch::Paths paths = orch::FromGameDir(utf82ws(a.gameDir));
     orch::RunResult r = orch::Run(paths, true);
@@ -488,6 +806,7 @@ static ojson tblFileToJson(const mk::TblFileG& g, const std::string& stem) {
     for (const auto& t : g.tables) {
         ojson tj;
         tj["table"] = t.name;
+        tj["row_length"] = mk::TblSchemaSize(t.schema);
         tj["rows"] = ojson::array();
         for (const auto& row : t.rows) {
             ojson rj = ojson::object();
@@ -517,11 +836,16 @@ static void doConvert(App& a) {
         if (!mk::DecodeTblG(bytes, schemas, "Sora1", g, err)) {
             ++failN; if (firstErr.empty()) firstErr = ws2utf8(fs::path(p).filename().wstring()) + ": " + err; continue;
         }
-        ojson j = tblFileToJson(g, fs::path(p).stem().string());
+        std::string text;
+        try { text = tblFileToJson(g, fs::path(p).stem().string()).dump(2); }
+        catch (const std::exception& e) {
+            ++failN; if (firstErr.empty()) firstErr = ws2utf8(fs::path(p).filename().wstring()) + ": 导出 JSON 失败(" + e.what() + ")";
+            continue;
+        }
         fs::path outP = outDir / (fs::path(p).stem().wstring() + L".json");
         std::ofstream o(outP, std::ios::binary);
         if (!o) { ++failN; continue; }
-        o << j.dump(2);
+        o << text;
         ++ok;
     }
     { char b[160]; snprintf(b, sizeof b, T("导出完成:成功 %d,失败 %d"), ok, failN);
@@ -587,7 +911,20 @@ static bool jsonToTblFileG(const ojson& j, const std::wstring& schemasDir, mk::T
             }
         }
         mk::TblSchemaDef schema;
-        if (!mk::ResolveTblSchema(schemasDir, name, 0, "Sora1", schema, err)) return false;
+        uint32_t rowLen = 0;
+        if (tj.contains("row_length") && tj["row_length"].is_number_unsigned())
+            rowLen = tj["row_length"].get<uint32_t>();
+        if (rowLen != 0) {
+            if (!mk::ResolveTblSchema(schemasDir, name, rowLen, "Sora1", schema, err)) return false;
+        } else {
+            std::vector<std::string> fieldNames;
+            for (const auto& rj : rows) {
+                if (!rj.is_object()) continue;
+                for (auto it = rj.begin(); it != rj.end(); ++it) fieldNames.push_back(it.key());
+                break;
+            }
+            if (!mk::ResolveTblSchemaByFieldNames(schemasDir, name, fieldNames, schema, err)) return false;
+        }
         mk::TblTableG t; t.name = name; t.schema = schema;
         for (const auto& rj : rows) {
             if (!rj.is_object()) continue;
@@ -918,6 +1255,143 @@ static void drawDatConvertTab(App& a) {
     ImGui::TextColored(ImVec4(0.7f, 0.85f, 1.0f, 1.0f), "%s", cs);
 }
 
+static void doConvertDds(App& a) {
+    const bool dec = (a.ddsMode == 0);
+    a.ddsLog.clear();
+    if (a.ddsFiles.empty()) { a.ddsStatus = T("请先选择要转换的 dds。"); return; }
+    if (!a.ddsOverwrite && a.ddsOutDir[0] == 0) { a.ddsStatus = T("请先选择导出目录,或勾选「就地覆盖原文件」。"); return; }
+
+    fs::path outDir;
+    if (!a.ddsOverwrite) {
+        outDir = utf82ws(a.ddsOutDir);
+        std::error_code ec; fs::create_directories(outDir, ec);
+    }
+    int ok = 0, skip = 0, failN = 0, warnN = 0;
+    for (const auto& p : a.ddsFiles) {
+        const fs::path src = p;
+        const std::string fn = ws2utf8(src.filename().wstring());
+        std::ifstream f(src, std::ios::binary | std::ios::ate);
+        if (!f) { a.ddsLog.push_back(std::string("[失败] ") + fn + ":打不开"); ++failN; continue; }
+        const auto sz = f.tellg(); f.seekg(0);
+        std::vector<uint8_t> in((size_t)sz);
+        if (sz > 0) f.read(reinterpret_cast<char*>(in.data()), sz);
+        f.close();
+
+        const ddsc::Form form = ddsc::Detect(in);
+        if ((dec && form == ddsc::Form::Plain) || (!dec && form == ddsc::Form::Game)) {
+            a.ddsLog.push_back(std::string("[跳过] ") + fn + (dec ? T(":已经是普通 DDS,无需解密") : T(":已经是游戏格式,无需加密")));
+            ++skip; continue;
+        }
+
+        std::vector<uint8_t> out; std::string err;
+        const bool done = dec ? ddsc::Decrypt(in, out, err) : ddsc::Encrypt(in, out, err);
+        if (!done) { a.ddsLog.push_back(std::string("[失败] ") + fn + ":" + err); ++failN; continue; }
+
+        const fs::path dst = a.ddsOverwrite ? src : (outDir / src.filename());
+        std::error_code ec2;
+        if (!a.ddsOverwrite && fs::exists(dst, ec2) && fs::equivalent(src, dst, ec2)) {
+            a.ddsLog.push_back(std::string("[失败] ") + fn + T(":导出目录就是源目录,会盖掉原件。换个目录,或勾「就地覆盖原文件」"));
+            ++failN; continue;
+        }
+        std::ofstream o(dst, std::ios::binary);
+        if (!o) { a.ddsLog.push_back(std::string("[失败] ") + fn + T(":写出失败")); ++failN; continue; }
+        o.write(reinterpret_cast<const char*>(out.data()), (std::streamsize)out.size());
+        o.close();
+
+        const std::vector<uint8_t>& plain = dec ? out : in;
+        const ddsc::DdsInfo info = ddsc::Inspect(plain.data(), plain.size());
+        char line[512];
+        if (info.ok)
+            snprintf(line, sizeof line, "[成功] %s  %ux%u  mip%u  %s  %zu → %zu 字节",
+                     fn.c_str(), info.width, info.height, info.mips, info.format.c_str(), in.size(), out.size());
+        else
+            snprintf(line, sizeof line, "[成功] %s  %zu → %zu 字节", fn.c_str(), in.size(), out.size());
+        a.ddsLog.push_back(line);
+        for (const auto& w : info.warns) { a.ddsLog.push_back(std::string("  [注意] ") + w); ++warnN; }
+        ++ok;
+    }
+    char b[220];
+    snprintf(b, sizeof b, T("完成:成功 %d,跳过 %d,失败 %d%s"), ok, skip, failN,
+             warnN > 0 ? T("(有体检警告,见下)") : "");
+    a.ddsStatus = b;
+}
+
+static void drawDdsTab(App& a) {
+    int prevMode = a.ddsMode;
+    const char* dmLabels[2] = { T("解密(游戏 → 普通 DDS)"), T("加密(普通 DDS → 游戏)") };
+    labeledSeg(T("方位"), "##ddsmode", dmLabels, 2, a.ddsMode, a.ddsSegAnim, a.ddsSegDrag, 420.0f, 0.85f);
+    if (a.ddsMode != prevMode) { a.ddsFiles.clear(); a.ddsStatus.clear(); a.ddsLog.clear(); }
+
+    const bool dec = (a.ddsMode == 0);
+    ImGui::Spacing();
+
+    const wchar_t* filter = L"dds 贴图 (*.dds)\0*.dds\0所有文件 (*.*)\0*.*\0";
+    const wchar_t* pickTitle = L"选择要转换的 dds(可多选)";
+
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(T("1) 要转换的 dds"));
+    ImGui::SameLine();
+    if (flatButton(a, T("选择…(可多选)"), "dds_sel")) { std::vector<std::wstring> sel; if (browseFilesMulti(sel, filter, pickTitle)) a.ddsFiles = sel; }
+    ImGui::SameLine();
+    if (flatButton(a, T("追加…"), "dds_add"))         { std::vector<std::wstring> sel; if (browseFilesMulti(sel, filter, pickTitle)) for (auto& x : sel) a.ddsFiles.push_back(x); }
+    ImGui::SameLine();
+    if (flatButton(a, T("整个目录…"), "dds_dir")) {
+        std::wstring d;
+        if (browseFolder(d, L"选择一个目录,里面的 .dds 会全部加入")) {
+            std::error_code ec;
+            for (auto& e : fs::directory_iterator(d, ec))
+                if (e.is_regular_file(ec) && _wcsicmp(e.path().extension().wstring().c_str(), L".dds") == 0)
+                    a.ddsFiles.push_back(e.path().wstring());
+        }
+    }
+    ImGui::SameLine();
+    if (flatButton(a, T("清空"), "dds_clr")) { a.ddsFiles.clear(); a.ddsLog.clear(); a.ddsStatus.clear(); }
+    ImGui::SameLine();
+    ImGui::TextDisabled(T("已选 %d 个"), (int)a.ddsFiles.size());
+
+    ImGui::BeginChild("ddslist", ImVec2(0, 150), true);
+    if (a.ddsFiles.empty()) ImGui::TextDisabled("%s", T("(未选择)"));
+    else drawSelectedFiles(a, a.ddsFiles, "ddsdel");
+    ImGui::EndChild();
+
+    ImGui::Spacing();
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(T("2) 导出目录"));
+    ImGui::SameLine();
+    ImGui::BeginDisabled(a.ddsOverwrite);
+    ImGui::SetNextItemWidth(-340.0f * g_dpiScale);
+    ImGui::InputText("##ddsout", a.ddsOutDir, sizeof(a.ddsOutDir));
+    ImGui::SameLine();
+    if (flatButton(a, T("选择目录…"), "dds_out")) { std::wstring sel; if (browseFolder(sel, L"选择 dds 导出目录")) strncpy_s(a.ddsOutDir, ws2utf8(sel).c_str(), _TRUNCATE); }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::Checkbox(T("就地覆盖原文件"), &a.ddsOverwrite);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", T("直接改写选中的文件本身,不另存。"));
+
+    ImGui::Spacing();
+    if (flatButton(a, dec ? T("  解密  ") : T("  加密  "), "dds_run")) doConvertDds(a);
+    ImGui::SameLine();
+    const char* cs = a.ddsStatus.empty()
+        ? (dec ? T("选好 dds 与导出目录,然后点「解密」。") : T("选好 dds 与导出目录,然后点「加密」。"))
+        : a.ddsStatus.c_str();
+    ImGui::TextColored(ImVec4(0.7f, 0.85f, 1.0f, 1.0f), "%s", cs);
+
+    ImGui::Spacing();
+    ImGui::TextUnformatted(T("结果"));
+    ImGui::BeginChild("ddslog", ImVec2(0, 0), true);
+    if (a.ddsLog.empty()) ImGui::TextDisabled("%s", T("(没结果)"));
+    for (const auto& l : a.ddsLog) {
+        ImVec4 col(0.85f, 0.88f, 0.92f, 1.0f);
+        if (l.rfind("[失败]", 0) == 0)        col = ImVec4(1.00f, 0.42f, 0.40f, 1.0f);
+        else if (l.rfind("[跳过]", 0) == 0)   col = ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
+        else if (l.rfind("  [注意]", 0) == 0) col = ImVec4(1.00f, 0.70f, 0.30f, 1.0f);
+        ImGui::PushStyleColor(ImGuiCol_Text, col);
+        ImGui::TextWrapped("%s", l.c_str());
+        ImGui::PopStyleColor();
+    }
+    ImGui::EndChild();
+}
+
 static void drawMergeLog(App& a) {
     const json errs = a.hasReport ? a.report.value("errors", json::array()) : json::array();
     if (errs.empty() && a.mergeLog.empty()) {
@@ -956,6 +1430,8 @@ static ImVec4 compKindColor(const std::string& k) {
     if (k == "NPC")  return ImVec4(0.80f, 0.65f, 1.00f, 1.0f);
     return ImVec4(1.0f, 0.72f, 0.40f, 1.0f);
 }
+
+static const char* const kAudioCfgKey = "##audio";
 
 static void drawModAssets(App& a, const orch::ModInfo& m) {
     if (a.selAssets.empty()) return;
@@ -1056,6 +1532,7 @@ static void drawModConfig(App& a) {
     if (a.compsFor != m.name) {
         a.comps = scanModComponents(a, m.name);
         computeSelAssets(a, m.name);
+        scanAudioGroups(a, m.name);
         a.compsFor = m.name;
         a.cfgFile.clear();
         a.cfgHoverIdx = -1; a.cfgAnim.clear();
@@ -1079,13 +1556,75 @@ static void drawModConfig(App& a) {
         if (!m.enabled)
             ImGui::TextColored(ImVec4(1.0f, 0.60f, 0.45f, 1.0f), "%s", T("（该 MOD 已整体关闭;下面的开关在 MOD 启用后才会生效）"));
     };
+    auto modGameSetting = [&]() {
+        const std::string cur = a.modGame.count(m.name) ? a.modGame[m.name] : std::string();
+        const bool bad = !cur.empty() && !a.gameId.empty() && cur != a.gameId;
+        if (bad) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.00f, 0.36f, 0.34f, 1.0f));
+        ImGui::TextUnformatted(T("适用作品"));
+        ImGui::SameLine();
+        if (cur.empty())      ImGui::TextDisabled("%s", T("通用 / 无法从内容判定"));
+        else if (bad)         ImGui::TextUnformatted(gameDisplay(cur));
+        else                  ImGui::TextColored(ImVec4(0.62f, 0.90f, 0.82f, 1.0f), "%s", gameDisplay(cur));
+        if (bad) ImGui::PopStyleColor();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s", T("由管理器自动识别。"));
+    };
 
-    if (a.comps.empty()) {
+    if (a.comps.empty() && a.audioGroups.empty()) {
         ImGui::Text("MOD: %s", m.name.c_str());
         modDisabledWarn();
+        modGameSetting();
         ImGui::TextDisabled("%s", T("(此 MOD 无 tbl 配置:Mod\\<mod>\\tbl\\*.json,语言专属放 tbl\\sc\\ 等)"));
         drawModAssets(a, m);
         return;
+    }
+
+    if (a.cfgFile == kAudioCfgKey) {
+        if (a.audioGroups.empty()) { a.cfgFile.clear(); }
+        else {
+            ImGui::Text("MOD: %s  >  %s", m.name.c_str(), T("语音配置"));
+            modDisabledWarn();
+            ImGui::TextDisabled("%s", T("勾选 = 该文件夹内的音频生效;取消 = 保存时整组跳过。改完点上方「保存」套用。"));
+            bool back = chipButton(T("← 后退"), "cfgback", a.cfgBackAnim);
+            chipFlush();
+            if (!a.showSettings) {
+                if (!ImGui::GetIO().WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Backspace)) back = true;
+                if (ImGui::IsMouseClicked(ImGuiMouseButton(3))) back = true;
+            }
+            {
+                const ImGuiStyle& st = ImGui::GetStyle();
+                const char* bOn = T("全部生效"); const char* bOff = T("全部关闭");
+                float w = ImGui::CalcTextSize(bOn).x + ImGui::CalcTextSize(bOff).x
+                        + st.FramePadding.x * 4 + st.ItemSpacing.x + 18.0f;
+                ImGui::SameLine(ImGui::GetContentRegionMax().x - w);
+                if (chipButton(bOn, "cfgallon", a.cfgAllOnAnim))
+                    for (const auto& g : a.audioGroups) setCompEnabled(m, g.rel, true);
+                ImGui::SameLine();
+                if (chipButton(bOff, "cfgalloff", a.cfgAllOffAnim))
+                    for (const auto& g : a.audioGroups) setCompEnabled(m, g.rel, false);
+                chipFlush();
+            }
+            ImGui::Separator();
+            int offN = 0;
+            for (const auto& g : a.audioGroups) {
+                bool on = !compDisabled(m, g.rel);
+                if (!on) ++offN;
+                ImGui::PushID(g.rel.c_str());
+                ImGui::Indent(16.0f);
+                if (ImGui::Checkbox("##ag", &on)) setCompEnabled(m, g.rel, on);
+                ImGui::SameLine();
+                if (on) ImGui::TextUnformatted(g.name.c_str());
+                else    ImGui::TextDisabled("%s", g.name.c_str());
+                ImGui::SameLine();
+                ImGui::TextDisabled(T("[%s]  %d 个音频"), g.ns.c_str(), g.files);
+                ImGui::Unindent(16.0f);
+                ImGui::PopID();
+            }
+            ImGui::Separator();
+            ImGui::TextDisabled(T("本页 %d 组,已关闭 %d 组。"), (int)a.audioGroups.size(), offN);
+            if (back) a.cfgFile.clear();
+            return;
+        }
     }
 
     if (!a.cfgFile.empty()) {
@@ -1158,6 +1697,7 @@ static void drawModConfig(App& a) {
         chipFlush();
     }
     modDisabledWarn();
+    modGameSetting();
     ImGui::Separator();
     struct Grp { std::string file, lbl, btnId; size_t i, j; };
     std::vector<Grp> grps;
@@ -1172,6 +1712,16 @@ static void drawModConfig(App& a) {
         Grp G; G.file = file; G.lbl = lbl; G.btnId = std::string(lbl) + "###cfg_" + file; G.i = i; G.j = j;
         grps.push_back(std::move(G));
         i = j;
+    }
+    if (!a.audioGroups.empty()) {
+        int aOff = 0;
+        for (const auto& g : a.audioGroups) if (compDisabled(m, g.rel)) ++aOff;
+        char lbl[160];
+        if (aOff > 0) snprintf(lbl, sizeof lbl, T("%s (关 %d)"), T("语音配置"), aOff);
+        else          snprintf(lbl, sizeof lbl, "%s", T("语音配置"));
+        Grp G; G.file = kAudioCfgKey; G.lbl = lbl;
+        G.btnId = std::string(lbl) + "###cfg_audio"; G.i = 0; G.j = 0;
+        grps.push_back(std::move(G));
     }
 
     if (a.cfgAnim.size() < grps.size()) a.cfgAnim.resize(grps.size(), 0.0f);
@@ -1191,12 +1741,27 @@ static void drawModConfig(App& a) {
     drawModAssets(a, m);
 }
 
+static void centerModal(float fracW = 0, float fracH = 0,
+                        float minW = 0, float minH = 0, float maxW = 0, float maxH = 0) {
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f,
+                                   vp->WorkPos.y + vp->WorkSize.y * 0.5f),
+                            ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    if (fracW > 0.0f) {
+        auto cl = [](float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); };
+        ImVec2 sz(cl(vp->WorkSize.x * fracW, minW * g_dpiScale, maxW * g_dpiScale),
+                  cl(vp->WorkSize.y * fracH, minH * g_dpiScale, maxH * g_dpiScale));
+        ImGui::SetNextWindowSize(sz, ImGuiCond_Always);
+    }
+}
+
 static void drawSettings(App& a) {
     if (!a.showSettings) return;
     if (!ImGui::IsPopupOpen("###settings")) ImGui::OpenPopup("###settings");
-    ImGui::SetNextWindowSize(ImVec2(600, 380), ImGuiCond_Appearing);
+    centerModal(0.42f, 0.52f, 420, 320, 760, 680);
     std::string title = std::string(T("设置")) + "###settings";
-    if (ImGui::BeginPopupModal(title.c_str(), &a.showSettings)) {
+    if (ImGui::BeginPopupModal(title.c_str(), &a.showSettings,
+                               ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove)) {
         const float bottom = ImGui::GetFrameHeightWithSpacing();
         ImGui::BeginChild("set_cats", ImVec2(150, -bottom), true);
         if (ImGui::Selectable(T("语言"), a.settingsCat == 0)) a.settingsCat = 0;
@@ -1229,7 +1794,280 @@ static void drawSettings(App& a) {
     }
 }
 
+struct ChangeEntry { const char* ver; const char* date; std::vector<const char*> items; };
+static const std::vector<ChangeEntry>& changelog() {
+    static const std::vector<ChangeEntry> log = {
+        { "1.0.8", "2026-09-17", {
+            "已适配正式版本",
+        } },
+        { "1.0.7", "2026-09-03", {
+            "已支持PAC包体编辑",
+            "适配了2026/9/3的更新",
+        } },
+        { "1.0.6", "2026-08-29", {
+            "现已支持DDS加解密功能",
+        } },
+        { "1.0.5", "2026-08-27", {
+            "适配了Demo更新过后的兼容",
+            "MOD 支持压缩包形式:zip / 7z / rar / tar.gz 等,与放文件夹等价,两种可混用",
+        } },
+        { "1.0.4", "2026-08-20", {
+            "支持《空之轨迹 the 2nd》:按游戏目录自动识别当前作品",
+            "MOD 适用作品自动识别(比对它改动的表结构),不符则拦截合并并提示",
+            "补齐 2nd 的 tbl 结构定义,两作的表均可解析与回编",
+            "插件改为按当前游戏版本自适应,游戏更新后不必重新编译",
+        } },
+        { "1.0.3", "2026-07-12", {
+            "新增自动更新",
+        } },
+        { "1.0.2", "2026-07-10", {
+            "适配了7月10日的更新。",
+            "优化了UI表现,新增了语音相关的配置",
+        } },
+        { "1.0.0", "2026-07-01", {
+            "首个发布版本:MOD",
+        } },
+    };
+    return log;
+}
+
+static void drawChangelog(App& a) {
+    if (!a.showChangelog) return;
+    if (!ImGui::IsPopupOpen("###changelog")) ImGui::OpenPopup("###changelog");
+    centerModal(0.44f, 0.64f, 460, 380, 820, 860);
+    std::string title = std::string(T("更新日志")) + "###changelog";
+    if (ImGui::BeginPopupModal(title.c_str(), &a.showChangelog,
+                               ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove)) {
+        const float bottom = ImGui::GetFrameHeightWithSpacing() + 6 * g_dpiScale;
+        ImGui::BeginChild("changelog_body", ImVec2(0, -bottom), true);
+        bool first = true;
+        for (const auto& e : changelog()) {
+            if (!first) ImGui::Spacing();
+            first = false;
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.72f, 0.86f, 1.0f, 1.0f));
+            ImGui::Text("v%s", e.ver);
+            ImGui::PopStyleColor();
+            ImGui::SameLine();
+            ImGui::TextDisabled("(%s)", e.date);
+            for (const char* it : e.items) {
+                ImGui::Bullet();
+                ImGui::TextWrapped("%s", it);
+            }
+            ImGui::Spacing();
+            ImGui::Separator();
+        }
+        ImGui::EndChild();
+        ImGui::TextDisabled(T("当前版本 v%s"), kVersion);
+        const ImGuiStyle& st = ImGui::GetStyle();
+        float w1 = ImGui::CalcTextSize(T("检查更新")).x + st.FramePadding.x * 2.0f;
+        float w2 = ImGui::CalcTextSize(T("关闭")).x     + st.FramePadding.x * 2.0f;
+        float totalW = w1 + w2 + st.ItemSpacing.x;
+        ImGui::SameLine(ImGui::GetContentRegionMax().x - totalW);
+        if (flatButton(a, T("检查更新"), "cl_check")) {
+            g_upd.manual = true;
+            g_upd.manualPopupOpened = false;
+            startUpdateCheck();
+            a.showChangelog = false;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (flatButton(a, T("关闭"), "cl_close")) { a.showChangelog = false; ImGui::CloseCurrentPopup(); }
+        ImGui::EndPopup();
+    }
+}
+
 static void DrawBackground();
+static void PacWindowShow();
+
+static bool downloadFile(const std::string& urlUtf8, const std::wstring& dest, std::string& err) {
+    std::wstring url = utf82ws(urlUtf8);
+    URL_COMPONENTS uc = {}; uc.dwStructSize = sizeof(uc);
+    wchar_t host[256] = {0}, path[4096] = {0};
+    uc.lpszHostName = host; uc.dwHostNameLength = 256;
+    uc.lpszUrlPath  = path; uc.dwUrlPathLength  = 4096;
+    if (!WinHttpCrackUrl(url.c_str(), 0, 0, &uc)) { err = "URL 解析失败"; return false; }
+    HINTERNET hs = WinHttpOpen(L"ED9ModManager", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
+                               WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!hs) { err = "WinHttpOpen 失败"; return false; }
+    WinHttpSetTimeouts(hs, 10000, 10000, 30000, 30000);
+    HINTERNET hc = WinHttpConnect(hs, host, uc.nPort, 0);
+    HINTERNET hr = nullptr;
+    bool ok = false;
+    do {
+        if (!hc) { err = "连接失败"; break; }
+        DWORD reqFlags = (uc.nScheme == INTERNET_SCHEME_HTTPS) ? WINHTTP_FLAG_SECURE : 0;
+        hr = WinHttpOpenRequest(hc, L"GET", path, nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, reqFlags);
+        if (!hr) { err = "创建请求失败"; break; }
+        if (!WinHttpSendRequest(hr, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0)) { err = "发送失败"; break; }
+        if (!WinHttpReceiveResponse(hr, nullptr)) { err = "无响应"; break; }
+        DWORD code = 0, len = sizeof(code);
+        WinHttpQueryHeaders(hr, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                            WINHTTP_HEADER_NAME_BY_INDEX, &code, &len, WINHTTP_NO_HEADER_INDEX);
+        if (code != 200) { char b[48]; snprintf(b, sizeof b, "HTTP %lu", code); err = b; break; }
+        DWORD cl = 0, cll = sizeof(cl);
+        if (WinHttpQueryHeaders(hr, WINHTTP_QUERY_CONTENT_LENGTH | WINHTTP_QUERY_FLAG_NUMBER,
+                                WINHTTP_HEADER_NAME_BY_INDEX, &cl, &cll, WINHTTP_NO_HEADER_INDEX))
+            g_upd.dlTotal = (long long)cl;
+        std::ofstream out(dest, std::ios::binary);
+        if (!out) { err = "无法写入临时文件"; break; }
+        long long got = 0; DWORD avail = 0;
+        do {
+            avail = 0;
+            if (!WinHttpQueryDataAvailable(hr, &avail) || avail == 0) break;
+            std::vector<char> buf(avail); DWORD rd = 0;
+            if (!WinHttpReadData(hr, buf.data(), avail, &rd) || rd == 0) break;
+            out.write(buf.data(), rd);
+            got += rd; g_upd.dlDone = got;
+        } while (avail > 0);
+        out.close();
+        ok = (got > 0);
+        if (!ok) err = "下载内容为空";
+    } while (false);
+    if (hr) WinHttpCloseHandle(hr);
+    if (hc) WinHttpCloseHandle(hc);
+    WinHttpCloseHandle(hs);
+    return ok;
+}
+
+static void startDownload(const std::wstring& destDir) {
+    { std::lock_guard<std::mutex> lk(g_upd.mtx); g_upd.err.clear(); }
+    g_upd.dlDone = 0; g_upd.dlTotal = 0; g_upd.phase = 5;
+    std::string url; { std::lock_guard<std::mutex> lk(g_upd.mtx); url = g_upd.url; }
+    std::wstring dir = destDir;
+    std::thread([url, dir]{
+        std::wstring base = dir;
+        if (base.empty()) { wchar_t tmp[MAX_PATH] = {0}; GetTempPathW(MAX_PATH, tmp); base = tmp; }
+        if (!base.empty() && base.back() != L'\\' && base.back() != L'/') base += L'\\';
+        std::wstring dest = base + L"ED9ModManager-update.zip";
+        std::string err;
+        bool ok = downloadFile(url, dest, err);
+        std::lock_guard<std::mutex> lk(g_upd.mtx);
+        if (ok) { g_upd.dlPath = dest; g_upd.phase = 6; }
+        else    { g_upd.err = err;    g_upd.phase = 7; }
+    }).detach();
+}
+
+static bool readWholeFileW(const std::wstring& path, std::vector<unsigned char>& out) {
+    HANDLE h = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                           OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return false;
+    LARGE_INTEGER sz{}; if (!GetFileSizeEx(h, &sz)) { CloseHandle(h); return false; }
+    out.resize((size_t)sz.QuadPart);
+    size_t off = 0; bool ok = true;
+    while (off < out.size()) {
+        DWORD want = (DWORD)((out.size() - off) > (1u << 20) ? (1u << 20) : (out.size() - off));
+        DWORD rd = 0;
+        if (!ReadFile(h, out.data() + off, want, &rd, nullptr) || rd == 0) { ok = false; break; }
+        off += rd;
+    }
+    CloseHandle(h);
+    return ok && off == out.size();
+}
+
+static void ensureDirW(const std::wstring& dir) {
+    for (size_t i = 0; i < dir.size(); ++i) {
+        if (dir[i] == L'\\' || dir[i] == L'/') {
+            std::wstring sub = dir.substr(0, i);
+            if (sub.size() >= 2 && sub[1] == L':') CreateDirectoryW(sub.c_str(), nullptr);
+        }
+    }
+    CreateDirectoryW(dir.c_str(), nullptr);
+}
+
+static bool writeFileReplace(const std::wstring& target, const void* data, size_t size, std::string& err) {
+    size_t slash = target.find_last_of(L"\\/");
+    if (slash != std::wstring::npos) ensureDirW(target.substr(0, slash));
+    HANDLE h = CreateFileW(target.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) {
+        DWORD e = GetLastError();
+        if (e == ERROR_SHARING_VIOLATION || e == ERROR_ACCESS_DENIED) {
+            std::wstring old = target + L".old";
+            DeleteFileW(old.c_str());
+            if (MoveFileExW(target.c_str(), old.c_str(), MOVEFILE_REPLACE_EXISTING))
+                h = CreateFileW(target.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        }
+    }
+    if (h == INVALID_HANDLE_VALUE) { err = "无法写入 " + ws2utf8(target); return false; }
+    bool ok = true; size_t off = 0; const unsigned char* p = (const unsigned char*)data;
+    while (off < size) {
+        DWORD want = (DWORD)((size - off) > (1u << 20) ? (1u << 20) : (size - off));
+        DWORD wr = 0;
+        if (!WriteFile(h, p + off, want, &wr, nullptr) || wr == 0) { ok = false; break; }
+        off += wr;
+    }
+    CloseHandle(h);
+    if (!ok) err = "写入失败 " + ws2utf8(target);
+    return ok;
+}
+
+static bool extractUpdateZip(const std::wstring& zipPath, const std::wstring& root, const std::wstring& selfPath,
+                             std::string& err, bool& gotSelf, int& written, int& skipped) {
+    gotSelf = false; written = 0; skipped = 0;
+    std::vector<unsigned char> zipData;
+    if (!readWholeFileW(zipPath, zipData) || zipData.empty()) { err = "读取更新包失败"; return false; }
+    mz_zip_archive zip; memset(&zip, 0, sizeof(zip));
+    if (!mz_zip_reader_init_mem(&zip, zipData.data(), zipData.size(), 0)) { err = "更新包不是有效 zip"; return false; }
+    std::wstring base = root;
+    while (!base.empty() && (base.back() == L'\\' || base.back() == L'/')) base.pop_back();
+    std::wstring self = selfPath; for (auto& c : self) if (c == L'/') c = L'\\';
+    mz_uint n = mz_zip_reader_get_num_files(&zip);
+    for (mz_uint i = 0; i < n; ++i) {
+        mz_zip_archive_file_stat st;
+        if (!mz_zip_reader_file_stat(&zip, i, &st) || st.m_is_directory) continue;
+        std::string name = st.m_filename;
+        for (auto& c : name) if (c == '\\') c = '/';
+        const std::string pfx = "ED9ModManager/";
+        if (name.rfind(pfx, 0) == 0) name = name.substr(pfx.size());
+        if (name.empty()) continue;
+        if (name.rfind("Mod/", 0) == 0) { ++skipped; continue; }
+        size_t usize = 0;
+        void* p = mz_zip_reader_extract_to_heap(&zip, i, &usize, 0);
+        if (!p) { ++skipped; continue; }
+        std::wstring rel = utf82ws(name); for (auto& c : rel) if (c == L'/') c = L'\\';
+        std::wstring target = base + L"\\" + rel;
+        std::string werr;
+        if (writeFileReplace(target, p, usize, werr)) {
+            ++written;
+            if (_wcsicmp(target.c_str(), self.c_str()) == 0) gotSelf = true;
+        } else {
+            ++skipped; if (err.empty()) err = werr;
+        }
+        mz_free(p);
+    }
+    mz_zip_reader_end(&zip);
+    return gotSelf;
+}
+
+static void startInstall() {
+    std::wstring zip; { std::lock_guard<std::mutex> lk(g_upd.mtx); zip = g_upd.dlPath; }
+    g_upd.phase = 8;
+    std::thread([zip]{
+        std::wstring root = fs::path(zip).parent_path().wstring();
+        wchar_t self[MAX_PATH] = {0}; GetModuleFileNameW(nullptr, self, MAX_PATH);
+        std::string err; bool gotSelf = false; int written = 0, skipped = 0;
+        extractUpdateZip(zip, root, self, err, gotSelf, written, skipped);
+        if (gotSelf) DeleteFileW(zip.c_str());
+        std::lock_guard<std::mutex> lk(g_upd.mtx);
+        if (gotSelf) { g_upd.phase = 9; }
+        else { g_upd.err = err.empty() ? "解压失败(未能替换管理器)" : err; g_upd.phase = 10; }
+    }).detach();
+}
+
+static void restartManager() {
+    wchar_t self[MAX_PATH] = {0}; GetModuleFileNameW(nullptr, self, MAX_PATH);
+    std::wstring dir = fs::path(self).parent_path().wstring();
+    ShellExecuteW(nullptr, L"open", self, nullptr, dir.c_str(), SW_SHOWNORMAL);
+    PostQuitMessage(0);
+}
+
+static void cleanupOldFiles() {
+    wchar_t self[MAX_PATH] = {0}; GetModuleFileNameW(nullptr, self, MAX_PATH);
+    fs::path dir = fs::path(self).parent_path();
+    std::error_code ec;
+    for (fs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
+        if (it->path().extension() == L".old") { std::error_code e2; fs::remove(it->path(), e2); }
+    }
+}
 
 static bool drawSegToggle(const char* id, const char* const* labels, int count,
                           int& state, float& anim, bool& dragging, float minWidth, float scale) {
@@ -1296,6 +2134,101 @@ static void drawUI(App& a) {
 
     DrawBackground();
 
+    if (g_upd.phase == 3 && !g_upd.dismissed && !g_upd.popupOpened) {
+        ImGui::OpenPopup(T("更新检测###update_avail"));
+        g_upd.popupOpened = true;
+    }
+    centerModal();
+    if (ImGui::BeginPopupModal(T("更新检测###update_avail"), nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        std::string latest;
+        { std::lock_guard<std::mutex> lk(g_upd.mtx); latest = g_upd.latest; }
+        ImGui::Text(T("发现新版本  %s"), latest.c_str());
+        ImGui::TextDisabled(T("当前版本 %s"), kVersion);
+        ImGui::Spacing();
+        ImGui::Separator();
+        if (flatButton(a, T("更新"), "upd_go")) { startDownload(utf82ws(a.gameDir)); g_upd.dlPopupOpened = false; ImGui::CloseCurrentPopup(); }
+        ImGui::SameLine();
+        if (flatButton(a, T("以后再说"), "upd_later")) { g_upd.dismissed = true; ImGui::CloseCurrentPopup(); }
+        ImGui::EndPopup();
+    }
+    if (g_upd.phase >= 5 && !g_upd.dlPopupOpened) {
+        ImGui::OpenPopup(T("下载更新###update_dl"));
+        g_upd.dlPopupOpened = true;
+    }
+    centerModal();
+    if (ImGui::BeginPopupModal(T("下载更新###update_dl"), nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        int ph = g_upd.phase.load();
+        if (ph == 5) {
+            long long done = g_upd.dlDone.load(), total = g_upd.dlTotal.load();
+            ImGui::TextUnformatted(T("正在下载新版本…"));
+            float frac = total > 0 ? (float)((double)done / (double)total) : 0.0f;
+            char ov[64];
+            if (total > 0) snprintf(ov, sizeof ov, "%.1f / %.1f MB", done / 1048576.0, total / 1048576.0);
+            else           snprintf(ov, sizeof ov, "%.1f MB", done / 1048576.0);
+            ImGui::ProgressBar(frac, ImVec2(300 * g_dpiScale, 0), ov);
+        } else if (ph == 6) {
+            std::wstring p; { std::lock_guard<std::mutex> lk(g_upd.mtx); p = g_upd.dlPath; }
+            ImGui::TextUnformatted(T("下载完成!点「安装并重启」应用新版本。"));
+            ImGui::TextDisabled(T("已保存到:%s"), ws2utf8(p).c_str());
+            ImGui::Spacing(); ImGui::Separator();
+            if (flatButton(a, T("安装并重启"), "upd_install")) { startInstall(); }
+            ImGui::SameLine();
+            if (flatButton(a, T("取消"), "upd_cancel")) { g_upd.phase = 2; g_upd.dismissed = true; ImGui::CloseCurrentPopup(); }
+        } else if (ph == 8) {
+            ImGui::TextUnformatted(T("正在安装更新…"));
+            ImGui::TextDisabled(T("解压覆盖中,请勿关闭程序。"));
+        } else if (ph == 9) {
+            ImGui::TextUnformatted(T("安装完成,正在重启…"));
+            if (!g_upd.restartLaunched) { g_upd.restartLaunched = true; restartManager(); }
+        } else if (ph == 10) {
+            std::string e; { std::lock_guard<std::mutex> lk(g_upd.mtx); e = g_upd.err; }
+            ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.4f, 1.0f), T("安装失败:%s"), e.c_str());
+            ImGui::TextDisabled(T("可手动解压更新包覆盖游戏目录。"));
+            ImGui::Separator();
+            if (flatButton(a, T("关闭"), "upd_instclose")) { g_upd.phase = 2; ImGui::CloseCurrentPopup(); }
+        } else {
+            std::string e; { std::lock_guard<std::mutex> lk(g_upd.mtx); e = g_upd.err; }
+            ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.4f, 1.0f), T("下载失败:%s"), e.c_str());
+            ImGui::Separator();
+            if (flatButton(a, T("关闭"), "upd_dlclose")) { g_upd.phase = 2; ImGui::CloseCurrentPopup(); }
+        }
+        ImGui::EndPopup();
+    }
+
+    if (g_upd.manual && !g_upd.manualPopupOpened) {
+        ImGui::OpenPopup(T("检查更新###upd_manual"));
+        g_upd.manualPopupOpened = true;
+    }
+    centerModal();
+    if (ImGui::BeginPopupModal(T("检查更新###upd_manual"), nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        int ph = g_upd.phase.load();
+        if (ph <= 1) {
+            ImGui::TextUnformatted(T("正在检查更新…"));
+        } else if (ph == 3) {
+            std::string latest;
+            { std::lock_guard<std::mutex> lk(g_upd.mtx); latest = g_upd.latest; }
+            ImGui::Text(T("发现新版本  %s"), latest.c_str());
+            ImGui::TextDisabled(T("当前版本 %s"), kVersion);
+            ImGui::Spacing(); ImGui::Separator();
+            if (flatButton(a, T("更新"), "um_go")) {
+                startDownload(utf82ws(a.gameDir)); g_upd.dlPopupOpened = false;
+                g_upd.manual = false; ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (flatButton(a, T("以后再说"), "um_later")) { g_upd.manual = false; ImGui::CloseCurrentPopup(); }
+        } else if (ph == 2) {
+            ImGui::Text(T("已是最新版本  v%s"), kVersion);
+            ImGui::Spacing(); ImGui::Separator();
+            if (flatButton(a, T("确定"), "um_ok")) { g_upd.manual = false; ImGui::CloseCurrentPopup(); }
+        } else {
+            std::string e; { std::lock_guard<std::mutex> lk(g_upd.mtx); e = g_upd.err; }
+            ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.4f, 1.0f), T("检查失败:%s"), e.c_str());
+            ImGui::Spacing(); ImGui::Separator();
+            if (flatButton(a, T("确定"), "um_ok2")) { g_upd.manual = false; ImGui::CloseCurrentPopup(); }
+        }
+        ImGui::EndPopup();
+    }
+
     if (ImGui::BeginMenuBar()) {
         if (ImGui::BeginMenu(T("文件"))) {
             if (ImGui::MenuItem(T("保存"), "Ctrl+S")) doMerge(a);
@@ -1316,6 +2249,27 @@ static void drawUI(App& a) {
             }
             ImGui::EndMenu();
         }
+        if (ImGui::MenuItem(T("更新"))) a.showChangelog = true;
+        if (ImGui::MenuItem("PAC")) PacWindowShow();
+        {
+            char verbuf[40];
+            snprintf(verbuf, sizeof verbuf, "v%s", kVersion);
+            const char* gd = gameDisplay(a.gameId);
+            char gbuf[96];
+            if (a.gameDir[0] == 0)      snprintf(gbuf, sizeof gbuf, "%s", T("未设置游戏目录"));
+            else if (a.gameId.empty())  snprintf(gbuf, sizeof gbuf, "%s", T("未识别的游戏目录"));
+            else                        snprintf(gbuf, sizeof gbuf, "%s", gd);
+            float vw = ImGui::CalcTextSize(verbuf).x;
+            float gw = ImGui::CalcTextSize(gbuf).x;
+            float gap = ImGui::GetStyle().ItemSpacing.x * 2.0f;
+            float pad = ImGui::GetStyle().WindowPadding.x + 12.0f * g_dpiScale;
+            ImGui::SameLine(ImGui::GetWindowWidth() - vw - gw - gap - pad);
+            ImVec4 gc = a.gameId.empty() ? ImVec4(1.00f, 0.70f, 0.30f, 1.0f)
+                                         : ImVec4(0.62f, 0.90f, 0.82f, 1.0f);
+            ImGui::TextColored(gc, "%s", gbuf);
+            ImGui::SameLine(ImGui::GetWindowWidth() - vw - pad);
+            ImGui::TextColored(ImVec4(0.75f, 0.82f, 0.95f, 0.90f), "%s", verbuf);
+        }
         ImGui::EndMenuBar();
     }
     {
@@ -1328,13 +2282,65 @@ static void drawUI(App& a) {
     if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_S)) doMerge(a);
 
     drawSettings(a);
+    drawChangelog(a);
 
-    const char* kFuncs[] = { T("MOD管理"), T("TBL/Json互转"), T("DAT/Json互转") };
-    labeledSeg(T("功能"), "##func", kFuncs, 3, a.funcView, a.funcSegAnim, a.funcSegDrag, 420.0f);
+    if (a.showEnableWarn) {
+        if (!ImGui::IsPopupOpen("###enable_warn")) ImGui::OpenPopup(T("适用作品不符###enable_warn"));
+        a.showEnableWarn = false;
+    }
+    centerModal();
+    if (ImGui::BeginPopupModal(T("适用作品不符###enable_warn"), nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove)) {
+        auto it = a.modGame.find(a.enableWarnMod);
+        const std::string g = (it != a.modGame.end()) ? it->second : std::string();
+        ImGui::Text(T("MOD「%s」"), a.enableWarnMod.c_str());
+        ImGui::Spacing();
+        ImGui::TextColored(ImVec4(1.00f, 0.70f, 0.35f, 1.0f), T("适用作品:%s"), gameDisplay(g));
+        ImGui::Text(T("当前游戏:%s"), gameDisplay(a.gameId));
+        ImGui::Spacing();
+        ImGui::TextDisabled("%s", T("保存时会被拒绝合并。要用它请切换到对应作品的游戏目录,\n或在右侧「MOD 配置」页改它的适用作品。"));
+        ImGui::Separator();
+        if (flatButton(a, T("知道了"), "bg_ok")) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+
+    if (a.showBadGamePopup) {
+        if (!ImGui::IsPopupOpen("###badgame")) ImGui::OpenPopup(T("无法保存###badgame"));
+        a.showBadGamePopup = false;
+    }
+    centerModal();
+    if (ImGui::BeginPopupModal(T("无法保存###badgame"), nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove)) {
+        ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.4f, 1.0f), "%s",
+                           T("以下已启用的 MOD 不适用于当前游戏,为避免改坏数据,本次未合并:"));
+        ImGui::Spacing();
+        for (const auto& n : a.badGameMods) {
+            auto it = a.modGame.find(n);
+            const std::string g = (it != a.modGame.end()) ? it->second : std::string();
+            ImGui::BulletText("%s  [%s]", n.c_str(), gameDisplay(g));
+        }
+        ImGui::Spacing();
+        ImGui::TextDisabled("%s", T("请关掉它们,或在「MOD 配置」页改其适用作品后重试。"));
+        ImGui::Separator();
+        if (flatButton(a, T("关掉这些 MOD"), "bg_disable")) {
+            for (const auto& n : a.badGameMods)
+                for (auto& m : a.mods) if (m.name == n) m.enabled = false;
+            a.compsFor.clear();
+            a.status = T("已关掉不适用于当前游戏的 MOD,可重新保存");
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (flatButton(a, T("关闭"), "bg_close")) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+
+    const char* kFuncs[] = { T("MOD管理"), T("TBL/Json互转"), T("DAT/Json互转"), T("DDS加解密") };
+    labeledSeg(T("功能"), "##func", kFuncs, 4, a.funcView, a.funcSegAnim, a.funcSegDrag, 560.0f);
     ImGui::Separator();
 
     if (a.funcView == 1) { drawConvertTab(a); ImGui::End(); return; }
     if (a.funcView == 2) { drawDatConvertTab(a); ImGui::End(); return; }
+    if (a.funcView == 3) { drawDdsTab(a); ImGui::End(); return; }
 
     ImGui::TextDisabled("%s", T("靠下的 mod = 优先级更高(冲突时覆盖靠上的)"));
     ImGui::Separator();
@@ -1352,17 +2358,32 @@ static void drawUI(App& a) {
     for (int i = 0; i < (int)a.mods.size(); ++i) {
         ImGui::PushID(i);
         bool en = a.mods[i].enabled;
-        if (ImGui::Checkbox("##en", &en)) { a.mods[i].enabled = en; a.compsFor.clear(); }
+        if (ImGui::Checkbox("##en", &en)) {
+            a.mods[i].enabled = en; a.compsFor.clear();
+            if (en) {
+                auto it = a.modGame.find(a.mods[i].name);
+                const std::string g = (it != a.modGame.end()) ? it->second : std::string();
+                if (!g.empty() && !a.gameId.empty() && g != a.gameId) {
+                    a.enableWarnMod = a.mods[i].name;
+                    a.showEnableWarn = true;
+                }
+            }
+        }
         ImGui::SameLine();
         bool hasErr  = a.errorMods.count(a.mods[i].name) > 0;
         bool hasConf = a.conflictMods.count(a.mods[i].name) > 0;
+        const std::string& mg = a.modGame[a.mods[i].name];
+        bool wrongGame = !mg.empty() && !a.gameId.empty() && mg != a.gameId;
+        char gtag[48] = {};
+        if (wrongGame) snprintf(gtag, sizeof gtag, "  [%s]", gameDisplay(mg));
         const char* tag = hasErr ? T("  [错误]") : (hasConf ? T("  [冲突]") : "");
-        char nm[340];
-        snprintf(nm, sizeof nm, "%2d. %s%s%s", i + 1, a.mods[i].name.c_str(),
-                 a.mods[i].disabled.empty() ? "" : "  *", tag);
+        char nm[400];
+        snprintf(nm, sizeof nm, "%2d. %s%s%s%s", i + 1, a.mods[i].name.c_str(),
+                 a.mods[i].disabled.empty() ? "" : "  *", gtag, tag);
         float rowW = ImGui::GetContentRegionAvail().x;
         bool colored = true;
-        if (hasErr)            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.00f, 0.42f, 0.40f, 1.0f));
+        if (wrongGame)         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.00f, 0.60f, 0.25f, 1.0f));
+        else if (hasErr)       ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.00f, 0.42f, 0.40f, 1.0f));
         else if (hasConf)      ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.00f, 0.70f, 0.30f, 1.0f));
         else if (!a.mods[i].enabled) ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
         else colored = false;
@@ -1384,8 +2405,9 @@ static void drawUI(App& a) {
         ImGui::PopStyleColor(3);
         if (clicked) { a.selMod = i; a.rightView = 1; }
         if (colored) ImGui::PopStyleColor();
-        if ((hasErr || hasConf || !a.mods[i].disabled.empty()) && ImGui::IsItemHovered()) {
+        if ((wrongGame || hasErr || hasConf || !a.mods[i].disabled.empty()) && ImGui::IsItemHovered()) {
             std::string tip;
+            if (wrongGame) tip += T("与当前游戏作品不符。\n");
             if (hasErr)  tip += T("[错误] 保存时出错(详见「日志」)\n");
             if (hasConf) tip += T("[冲突] 有资源被多个 MOD 重复覆盖(选中看「资源覆盖」)\n");
             if (!a.mods[i].disabled.empty()) { char b[96]; snprintf(b, sizeof b, T("有 %d 个修改项被单独关闭"), (int)a.mods[i].disabled.size()); tip += b; }
@@ -1597,6 +2619,14 @@ static void cliPrintHelp() {
         "                                             tbl 解码成可读 JSON(与图形界面同一引擎)\n"
         "  ED9ModManager.exe json2tbl <json文件或目录>... [--out <目录>]\n"
         "                                             编辑过的 JSON 编回 tbl\n"
+        "  ED9ModManager.exe dat2json <dat文件或目录>... [--out <目录>]\n"
+        "                                             #scp 脚本 dat 解成 JSON(往返无损)\n"
+        "  ED9ModManager.exe json2dat <json文件或目录>... [--out <目录>]\n"
+        "                                             编辑过的 JSON 组装回 dat\n"
+        "  ED9ModManager.exe ddsdec <dds文件或目录>... [--out <目录>]\n"
+        "                                             解密:游戏格式的 dds -> 普通 dds(图像软件能打开)\n"
+        "  ED9ModManager.exe ddsenc <dds文件或目录>... [--out <目录>]\n"
+        "                                             加密:普通 dds -> 游戏格式(放进 MOD 前必做)\n"
         "  ED9ModManager.exe --help | -h | help       显示本帮助\n"
         "  ED9ModManager.exe --version                显示版本\n"
         "\n"
@@ -1605,6 +2635,12 @@ static void cliPrintHelp() {
         "  · --out 缺省时输出到各输入文件的同目录;含未建模字符串池的表(如 NPCParam)拒绝回编。\n"
         "  · 每行 [成功]/[失败];末行 [result] converted=.. failed=..;退出码 0=全成功 1=有失败。\n"
         "  · 示例:ED9ModManager.exe tbl2json \"...\\table_sc\\t_item.tbl\" --out .\n"
+        "\n"
+        "ddsdec / ddsenc 说明:\n"
+        "  · 游戏里的 dds 外面套了一层 LZ4 帧,图像软件打不开;解密就是把那层拆掉。\n"
+        "  · ★ 改完必须 ddsenc 回去 —— 裸 dds 放进 MOD 的话引擎会**静默地不画这个网格**(不报错、不崩)。\n"
+        "  · --out 缺省时**就地覆盖**输入文件(两边后缀都是 .dds,不给 --out 就没法另存)。\n"
+        "  · 已经是目标形态的算 [跳过] 不算失败;成功行会带尺寸/格式,引擎层面的隐患另起 [注意] 行。\n"
         "\n"
         "merge 说明:\n"
         "  · 执行的合并逻辑与游戏启动时、图形界面点「保存」完全一致(orchestrator::Run)。\n"
@@ -1656,9 +2692,12 @@ static int cliRunTblConvert(bool toJson, int argc, LPWSTR* argv) {
             if (sz > 0) f.read(reinterpret_cast<char*>(bytes.data()), sz);
             mk::TblFileG g;
             if (!mk::DecodeTblG(bytes, schemas, "Sora1", g, err)) { cliWrite("[失败] " + fn + ": " + err + "\n"); ++failN; continue; }
+            std::string text;
+            try { text = tblFileToJson(g, src.stem().string()).dump(2); }
+            catch (const std::exception& e) { cliWrite("[失败] " + fn + ": 导出 JSON 失败(" + std::string(e.what()) + ")\n"); ++failN; continue; }
             std::ofstream o(dst, std::ios::binary);
             if (!o) { cliWrite("[失败] " + fn + ": 写出失败\n"); ++failN; continue; }
-            o << tblFileToJson(g, src.stem().string()).dump(2);
+            o << text;
         } else {
             std::ifstream f(src, std::ios::binary);
             if (!f) { cliWrite("[失败] " + fn + ": 打不开\n"); ++failN; continue; }
@@ -1681,6 +2720,143 @@ static int cliRunTblConvert(bool toJson, int argc, LPWSTR* argv) {
     return failN > 0 ? 1 : 0;
 }
 
+static int cliRunDatConvert(bool toJson, int argc, LPWSTR* argv) {
+    std::vector<std::wstring> inputs;
+    std::wstring outDir;
+    for (int i = 2; i < argc; ++i) {
+        std::wstring s = argv[i];
+        if (s == L"--out" || s == L"-o") { if (i + 1 < argc) outDir = argv[++i]; }
+        else inputs.push_back(s);
+    }
+    if (inputs.empty()) {
+        cliWrite(toJson ? "用法: ED9ModManager.exe dat2json <dat文件或目录>... [--out <目录>]\n"
+                        : "用法: ED9ModManager.exe json2dat <json文件或目录>... [--out <目录>]\n");
+        return 2;
+    }
+    const wchar_t* inExt  = toJson ? L".dat"  : L".json";
+    const wchar_t* outExt = toJson ? L".json" : L".dat";
+    std::vector<std::wstring> files;
+    for (const auto& in : inputs) {
+        std::error_code ec;
+        if (fs::is_directory(in, ec)) {
+            for (auto& e : fs::directory_iterator(in, ec))
+                if (e.is_regular_file(ec) && _wcsicmp(e.path().extension().wstring().c_str(), inExt) == 0)
+                    files.push_back(e.path().wstring());
+        } else {
+            files.push_back(in);
+        }
+    }
+    if (files.empty()) { cliWrite("没有匹配的输入文件(需 " + ws2utf8(inExt) + ")\n"); return 2; }
+    if (!outDir.empty()) { std::error_code ec; fs::create_directories(outDir, ec); }
+    int ok = 0, failN = 0;
+    for (const auto& p : files) {
+        fs::path src = p;
+        fs::path dst = (outDir.empty() ? src.parent_path() : fs::path(outDir)) / (src.stem().wstring() + outExt);
+        std::string fn = ws2utf8(src.filename().wstring());
+        std::string stem = ws2utf8(src.stem().wstring());
+        std::ifstream f(src, std::ios::binary);
+        if (!f) { cliWrite("[失败] " + fn + ": 打不开\n"); ++failN; continue; }
+        try {
+            if (toJson) {
+                std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)), {});
+                ed9::Script s = ed9::parse(bytes);
+                if (s.name.empty()) s.name = stem;
+                std::ofstream o(dst, std::ios::binary);
+                if (!o) { cliWrite("[失败] " + fn + ": 写出失败\n"); ++failN; continue; }
+                o << datjson::toJson(s, stem).dump(1, '\t');
+            } else {
+                ojson j = ojson::parse(f);
+                if (!j.is_object() || !j.contains("funcs")) {
+                    cliWrite("[失败] " + fn + ": 非 dat JSON(缺 funcs)\n"); ++failN; continue;
+                }
+                std::vector<uint8_t> bytes = ed9::assemble(datjson::fromJson(j));
+                if (bytes.empty()) { cliWrite("[失败] " + fn + ": 组装结果为空\n"); ++failN; continue; }
+                std::ofstream o(dst, std::ios::binary);
+                if (!o) { cliWrite("[失败] " + fn + ": 写出失败\n"); ++failN; continue; }
+                o.write(reinterpret_cast<const char*>(bytes.data()), (std::streamsize)bytes.size());
+            }
+        } catch (const std::exception& e) {
+            cliWrite("[失败] " + fn + ": " + e.what() + "\n"); ++failN; continue;
+        }
+        cliWrite("[成功] " + fn + " -> " + ws2utf8(dst.filename().wstring()) + "\n");
+        ++ok;
+    }
+    char buf[160]; snprintf(buf, sizeof buf, "[result] converted=%d failed=%d\n", ok, failN);
+    cliWrite(buf);
+    return failN > 0 ? 1 : 0;
+}
+
+static int cliRunDdsConvert(bool dec, int argc, LPWSTR* argv) {
+    std::vector<std::wstring> inputs;
+    std::wstring outDir;
+    for (int i = 2; i < argc; ++i) {
+        std::wstring x = argv[i];
+        if (x == L"--out" || x == L"-o") { if (i + 1 < argc) outDir = argv[++i]; }
+        else inputs.push_back(x);
+    }
+    if (inputs.empty()) {
+        cliWrite(dec ? "用法: ED9ModManager.exe ddsdec <dds文件或目录>... [--out <目录>]\n"
+                     : "用法: ED9ModManager.exe ddsenc <dds文件或目录>... [--out <目录>]\n");
+        return 2;
+    }
+    std::vector<std::wstring> files;
+    for (const auto& in : inputs) {
+        std::error_code ec;
+        if (fs::is_directory(in, ec)) {
+            for (auto& e : fs::directory_iterator(in, ec))
+                if (e.is_regular_file(ec) && _wcsicmp(e.path().extension().wstring().c_str(), L".dds") == 0)
+                    files.push_back(e.path().wstring());
+        } else {
+            files.push_back(in);
+        }
+    }
+    if (files.empty()) { cliWrite("没有匹配的输入文件(需 .dds)\n"); return 2; }
+    if (!outDir.empty()) { std::error_code ec; fs::create_directories(outDir, ec); }
+
+    int ok = 0, skip = 0, failN = 0;
+    for (const auto& p : files) {
+        const fs::path src = p;
+        const std::string fn = ws2utf8(src.filename().wstring());
+        std::ifstream f(src, std::ios::binary | std::ios::ate);
+        if (!f) { cliWrite("[失败] " + fn + ": 打不开\n"); ++failN; continue; }
+        const auto sz = f.tellg(); f.seekg(0);
+        std::vector<uint8_t> in((size_t)sz);
+        if (sz > 0) f.read(reinterpret_cast<char*>(in.data()), sz);
+        f.close();
+
+        const ddsc::Form form = ddsc::Detect(in);
+        if ((dec && form == ddsc::Form::Plain) || (!dec && form == ddsc::Form::Game)) {
+            cliWrite("[跳过] " + fn + (dec ? ": 已经是普通 DDS\n" : ": 已经是游戏格式\n"));
+            ++skip; continue;
+        }
+        std::vector<uint8_t> out; std::string err;
+        if (!(dec ? ddsc::Decrypt(in, out, err) : ddsc::Encrypt(in, out, err))) {
+            cliWrite("[失败] " + fn + ": " + err + "\n"); ++failN; continue;
+        }
+        const fs::path dst = outDir.empty() ? src : (fs::path(outDir) / src.filename());
+        std::ofstream o(dst, std::ios::binary);
+        if (!o) { cliWrite("[失败] " + fn + ": 写出失败\n"); ++failN; continue; }
+        o.write(reinterpret_cast<const char*>(out.data()), (std::streamsize)out.size());
+        o.close();
+
+        const std::vector<uint8_t>& plain = dec ? out : in;
+        const ddsc::DdsInfo info = ddsc::Inspect(plain.data(), plain.size());
+        char line[512];
+        if (info.ok)
+            snprintf(line, sizeof line, "[成功] %s  %ux%u mip%u %s  %zu -> %zu\n",
+                     fn.c_str(), info.width, info.height, info.mips, info.format.c_str(), in.size(), out.size());
+        else
+            snprintf(line, sizeof line, "[成功] %s  %zu -> %zu\n", fn.c_str(), in.size(), out.size());
+        cliWrite(line);
+        for (const auto& w : info.warns) cliWrite("  [注意] " + w + "\n");
+        ++ok;
+    }
+    char buf[160];
+    snprintf(buf, sizeof buf, "[result] converted=%d skipped=%d failed=%d\n", ok, skip, failN);
+    cliWrite(buf);
+    return failN > 0 ? 1 : 0;
+}
+
 static int tryRunCli() {
     int argc = 0;
     LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
@@ -1693,7 +2869,7 @@ static int tryRunCli() {
     if (eq(L"--help") || eq(L"-h") || eq(L"help") || eq(L"/?")) {
         cliPrintHelp();
     } else if (eq(L"--version") || eq(L"-v")) {
-        cliWrite("ED9ModManager 1.0 (modkit 内置)\n");
+        cliWrite(std::string("ED9ModManager ") + kVersion + " (modkit 内置)\n");
     } else if (eq(L"merge")) {
         if (argc < 3) { cliWrite("用法: ED9ModManager.exe merge <游戏根目录> [--force]\n"); ret = 2; }
         else {
@@ -1710,8 +2886,16 @@ static int tryRunCli() {
         }
     } else if (eq(L"tbl2json")) {
         ret = cliRunTblConvert(true, argc, argv);
+    } else if (eq(L"dat2json")) {
+        return cliRunDatConvert(true, argc, argv);
+    } else if (eq(L"json2dat")) {
+        return cliRunDatConvert(false, argc, argv);
     } else if (eq(L"json2tbl")) {
         ret = cliRunTblConvert(false, argc, argv);
+    } else if (eq(L"ddsdec")) {
+        return cliRunDdsConvert(true, argc, argv);
+    } else if (eq(L"ddsenc")) {
+        return cliRunDdsConvert(false, argc, argv);
     } else {
         cliWrite("未知命令: ");
         cliWrite(ws2utf8(cmd));
@@ -1766,6 +2950,7 @@ static void applyModernStyle() {
     c[ImGuiCol_ResizeGripHovered]    = accent;
     c[ImGuiCol_ResizeGripActive]     = accentHi;
     c[ImGuiCol_TextSelectedBg]       = ImVec4(0.26f, 0.55f, 0.95f, 0.35f);
+    c[ImGuiCol_ModalWindowDimBg]     = ImVec4(0.00f, 0.00f, 0.00f, 0.55f);
 }
 
 static void enableDpiAwareness() {
@@ -1794,6 +2979,910 @@ static float queryDpiScale() {
     return (float)d / 96.0f;
 }
 
+struct SubWindow {
+    HWND                    hwnd = nullptr;
+    IDXGISwapChain*         swap = nullptr;
+    ID3D11RenderTargetView* rtv  = nullptr;
+    ImGuiContext*           ctx  = nullptr;
+    bool                    visible = false;
+};
+static SubWindow g_pacWin;
+
+static const char* kSubExtraGlyphs =
+    "一上下不且个中临为了些从件任份会传位何保候偏先入"
+    "全共内写几出到制前加动包占原去取另可右同名在填增"
+    "备复多够大失头夹好存它完定容对导小就左已帧底建开"
+    "引归当录径得必戏成或所打择挂按换据提搜撤改数整文"
+    "新时是替有未条来标根档正毫没消渲游源满滤点版用留"
+    "的盖盘目相看磁示秒称移稍空索给置能自被要覆角记设"
+    "请读败资路过还这进选透部里销键间项";
+
+static HINSTANCE g_hInst    = nullptr;
+static HICON     g_hIconBig = nullptr;
+static HICON     g_hIconSm  = nullptr;
+
+static void subMakeRTV(SubWindow& w) {
+    ID3D11Texture2D* bb = nullptr;
+    if (SUCCEEDED(w.swap->GetBuffer(0, IID_PPV_ARGS(&bb))) && bb) {
+        g_pd3dDevice->CreateRenderTargetView(bb, nullptr, &w.rtv);
+        bb->Release();
+    }
+}
+static void subFreeRTV(SubWindow& w) { if (w.rtv) { w.rtv->Release(); w.rtv = nullptr; } }
+
+static LRESULT WINAPI SubWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    if (msg == WM_NCCREATE) {
+        SetWindowLongPtrW(hWnd, GWLP_USERDATA, (LONG_PTR)((CREATESTRUCTW*)lParam)->lpCreateParams);
+        return DefWindowProcW(hWnd, msg, wParam, lParam);
+    }
+    SubWindow* w = (SubWindow*)GetWindowLongPtrW(hWnd, GWLP_USERDATA);
+    if (w && w->ctx) {
+        ImGuiContext* prev = ImGui::GetCurrentContext();
+        ImGui::SetCurrentContext(w->ctx);
+        const LRESULT eaten = ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam);
+        ImGui::SetCurrentContext(prev);
+        if (eaten) return true;
+    }
+    switch (msg) {
+    case WM_SIZE:
+        if (w && w->swap && wParam != SIZE_MINIMIZED) {
+            subFreeRTV(*w);
+            w->swap->ResizeBuffers(0, (UINT)LOWORD(lParam), (UINT)HIWORD(lParam), DXGI_FORMAT_UNKNOWN, 0);
+            subMakeRTV(*w);
+        }
+        return 0;
+    case WM_CLOSE:
+        if (w) { ShowWindow(hWnd, SW_HIDE); w->visible = false; }
+        return 0;
+    }
+    return DefWindowProcW(hWnd, msg, wParam, lParam);
+}
+
+static bool subCreateSwapChain(SubWindow& w) {
+    IDXGIDevice*  dxgiDev = nullptr;
+    IDXGIAdapter* adapter = nullptr;
+    IDXGIFactory* factory = nullptr;
+    bool ok = false;
+    if (SUCCEEDED(g_pd3dDevice->QueryInterface(IID_PPV_ARGS(&dxgiDev))) &&
+        SUCCEEDED(dxgiDev->GetAdapter(&adapter)) &&
+        SUCCEEDED(adapter->GetParent(IID_PPV_ARGS(&factory)))) {
+        DXGI_SWAP_CHAIN_DESC sd = {};
+        sd.BufferCount = 2;
+        sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        sd.BufferDesc.RefreshRate.Numerator = 60; sd.BufferDesc.RefreshRate.Denominator = 1;
+        sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+        sd.OutputWindow = w.hwnd; sd.SampleDesc.Count = 1; sd.Windowed = TRUE;
+        sd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
+        if (SUCCEEDED(factory->CreateSwapChain(g_pd3dDevice, &sd, &w.swap))) { subMakeRTV(w); ok = true; }
+    }
+    if (factory) factory->Release();
+    if (adapter) adapter->Release();
+    if (dxgiDev) dxgiDev->Release();
+    return ok;
+}
+
+struct PacTree {
+    struct Dir {
+        std::string      name;
+        int              parent = -1;
+        std::vector<int> subs;
+        std::vector<int> files;
+        uint64_t         bytes = 0;
+        int              total = 0;
+    };
+    struct File {
+        std::string  path;
+        std::string  name;
+        uint64_t     size = 0;
+        uint64_t     offset = 0;
+        std::wstring replaceFrom;
+        bool         isNew = false;
+        int          dir = 0;
+    };
+    std::vector<Dir>  dirs;
+    std::vector<File> files;
+};
+
+struct PacJob {
+    std::atomic<bool>     running{ false };
+    std::atomic<bool>     done{ false };
+    std::atomic<uint64_t> cur{ 0 }, total{ 0 };
+    std::mutex            mtx;
+    std::string           title;
+    std::string           result;
+    std::string           err;
+    std::wstring          reopen;
+    std::thread           th;
+};
+static PacJob g_pacJob;
+
+struct PacState {
+    bool         loaded = false;
+    std::wstring path;
+    std::string  title;
+    std::string  err;
+    PacTree      tree;
+    int          cur = 0;
+    std::set<int> sel;
+    int          lastClick = -1;
+    char         filter[128] = {};
+    double       openMs = 0;
+    uint64_t     fileBytes = 0;
+    int          pendingExpand = -1;
+    std::vector<std::wstring> gamePacs;
+    std::string  gameDirScanned;
+    std::string  toast;
+    double       toastAt = 0;
+    bool         askOverwrite = false;
+};
+static PacState    g_pacState;
+static std::string g_pacGameDir;
+
+static void pacToast(const std::string& msg) {
+    g_pacState.toast = msg;
+    g_pacState.toastAt = ImGui::GetTime();
+}
+
+static std::string pacHumanSize(uint64_t b) {
+    char t[48];
+    if      (b >= (1ull << 30)) snprintf(t, sizeof t, "%.2f GB", (double)b / (double)(1ull << 30));
+    else if (b >= (1ull << 20)) snprintf(t, sizeof t, "%.2f MB", (double)b / (double)(1ull << 20));
+    else if (b >= (1ull << 10)) snprintf(t, sizeof t, "%.1f KB", (double)b / (double)(1ull << 10));
+    else                        snprintf(t, sizeof t, "%llu B", (unsigned long long)b);
+    return t;
+}
+
+static int pacEnsureDir(PacTree& t, int parent, const std::string& name) {
+    for (int i : t.dirs[parent].subs) if (t.dirs[i].name == name) return i;
+    PacTree::Dir d; d.name = name; d.parent = parent;
+    t.dirs.push_back(std::move(d));
+    const int idx = (int)t.dirs.size() - 1;
+    t.dirs[parent].subs.push_back(idx);
+    return idx;
+}
+
+static void pacBuildTree() {
+    PacTree& t = g_pacState.tree;
+    t.dirs.clear();
+    t.dirs.push_back(PacTree::Dir{});
+    for (int fi = 0; fi < (int)t.files.size(); ++fi) {
+        PacTree::File& f = t.files[fi];
+        int dir = 0;
+        size_t start = 0;
+        for (;;) {
+            const size_t sl = f.path.find('/', start);
+            if (sl == std::string::npos) { f.name = f.path.substr(start); break; }
+            if (sl > start) dir = pacEnsureDir(t, dir, f.path.substr(start, sl - start));
+            start = sl + 1;
+        }
+        f.dir = dir;
+        t.dirs[dir].files.push_back(fi);
+        for (int d = dir; d >= 0; d = t.dirs[d].parent) { t.dirs[d].bytes += f.size; t.dirs[d].total += 1; }
+    }
+    for (auto& d : t.dirs) {
+        std::sort(d.subs.begin(), d.subs.end(),
+                  [&t](int a, int b) { return _stricmp(t.dirs[a].name.c_str(), t.dirs[b].name.c_str()) < 0; });
+        std::sort(d.files.begin(), d.files.end(),
+                  [&t](int a, int b) { return _stricmp(t.files[a].name.c_str(), t.files[b].name.c_str()) < 0; });
+    }
+}
+
+static std::string pacDirPath(const PacTree& t, int di) {
+    std::string s;
+    for (int d = di; d > 0; d = t.dirs[d].parent) s = "/" + t.dirs[d].name + s;
+    return s.empty() ? "/" : s;
+}
+static std::string pacDirPrefix(const PacTree& t, int di) {
+    const std::string p = pacDirPath(t, di);
+    return p == "/" ? std::string() : p.substr(1);
+}
+
+static int pacChangedCount(bool wantNew) {
+    int n = 0;
+    for (const auto& f : g_pacState.tree.files)
+        if (wantNew ? f.isNew : (!f.isNew && !f.replaceFrom.empty())) ++n;
+    return n;
+}
+static bool pacDirty() { return pacChangedCount(true) > 0 || pacChangedCount(false) > 0; }
+
+static bool pacOpen(const std::wstring& p) {
+    g_pacState.loaded = false;
+    g_pacState.err.clear();
+    g_pacState.tree = PacTree{};
+    g_pacState.cur = 0;
+    g_pacState.sel.clear();
+    g_pacState.lastClick = -1;
+    g_pacState.path = p;
+    g_pacState.title = ws2utf8(fs::path(p).filename().wstring());
+
+    LARGE_INTEGER f0, t0, t1;
+    QueryPerformanceFrequency(&f0);
+    QueryPerformanceCounter(&t0);
+
+    mk::FpacReader r;
+    if (!r.Open(p)) { g_pacState.err = g_pacState.title + T(":打不开,或不是 FPAC 归档"); return false; }
+
+    PacTree& t = g_pacState.tree;
+    t.files.reserve(r.Count());
+    for (const auto& e : r.Entries()) {
+        PacTree::File f;
+        f.path = e.name;
+        f.size = e.size;
+        f.offset = e.location;
+        t.files.push_back(std::move(f));
+    }
+    pacBuildTree();
+
+    {
+        int d = 0;
+        while (t.dirs[d].files.empty() && t.dirs[d].subs.size() == 1) d = t.dirs[d].subs[0];
+        g_pacState.cur = d;
+        g_pacState.pendingExpand = d;
+    }
+
+    QueryPerformanceCounter(&t1);
+    g_pacState.openMs = (double)(t1.QuadPart - t0.QuadPart) * 1000.0 / (double)f0.QuadPart;
+    std::error_code ec;
+    g_pacState.fileBytes = (uint64_t)fs::file_size(p, ec);
+    g_pacState.loaded = true;
+    if (g_pacWin.hwnd) {
+        const std::wstring cap = L"PAC — " + fs::path(p).filename().wstring();
+        SetWindowTextW(g_pacWin.hwnd, cap.c_str());
+    }
+    return true;
+}
+
+static void pacScanGamePacs() {
+    if (g_pacState.gameDirScanned == g_pacGameDir) return;
+    g_pacState.gameDirScanned = g_pacGameDir;
+    g_pacState.gamePacs.clear();
+    if (g_pacGameDir.empty()) return;
+    std::error_code ec;
+    const fs::path dir = fs::path(utf82ws(g_pacGameDir)) / L"pac" / L"steam";
+    for (auto& e : fs::directory_iterator(dir, ec))
+        if (e.is_regular_file(ec) && _wcsicmp(e.path().extension().wstring().c_str(), L".pac") == 0)
+            g_pacState.gamePacs.push_back(e.path().wstring());
+    std::sort(g_pacState.gamePacs.begin(), g_pacState.gamePacs.end());
+}
+
+static void pacJobFinish() {
+    if (!g_pacJob.done.load()) return;
+    if (g_pacJob.th.joinable()) g_pacJob.th.join();
+    std::wstring reopen;
+    std::string  msg;
+    { std::lock_guard<std::mutex> lk(g_pacJob.mtx);
+      msg = g_pacJob.err.empty() ? g_pacJob.result : (std::string(T("失败:")) + g_pacJob.err);
+      reopen = g_pacJob.reopen; }
+    g_pacJob.done = false;
+    g_pacJob.running = false;
+    if (!reopen.empty()) pacOpen(reopen);
+    pacToast(msg);
+}
+static bool pacBusy() { return g_pacJob.running.load(); }
+
+static void pacStartExport(std::vector<int> idx, const fs::path& outDir) {
+    if (pacBusy() || idx.empty()) return;
+    if (g_pacJob.th.joinable()) g_pacJob.th.join();
+    uint64_t total = 0;
+    for (int i : idx) total += g_pacState.tree.files[i].size;
+    g_pacJob.cur = 0; g_pacJob.total = total; g_pacJob.done = false; g_pacJob.running = true;
+    { std::lock_guard<std::mutex> lk(g_pacJob.mtx);
+      g_pacJob.title = T("正在导出…"); g_pacJob.result.clear(); g_pacJob.err.clear(); g_pacJob.reopen.clear(); }
+    const std::wstring src = g_pacState.path;
+    struct Item { std::string path; uint64_t off, size; std::wstring from; };
+    auto items = std::make_shared<std::vector<Item>>();
+    for (int i : idx) {
+        const auto& f = g_pacState.tree.files[i];
+        items->push_back({ f.path, f.offset, f.size, f.replaceFrom });
+    }
+    g_pacJob.th = std::thread([src, outDir, items]() {
+        std::string err;
+        int ok = 0;
+        mk::FpacExtractor ex;
+        ex.Open(src, err);
+        auto prog = [](uint64_t n) { g_pacJob.cur += n; };
+        for (const auto& it : *items) {
+            const mk::FpacItem fi{ it.path, it.size, it.off, it.from };
+            if (!ex.ExtractTo(fi, (outDir / utf82ws(it.path)).wstring(), prog, err)) break;
+            ++ok;
+        }
+        char b[160];
+        snprintf(b, sizeof b, T("已导出 %d 个文件"), ok);
+        { std::lock_guard<std::mutex> lk(g_pacJob.mtx); g_pacJob.result = b; g_pacJob.err = err; }
+        g_pacJob.done = true;
+    });
+}
+
+static void pacCollectUnder(int di, std::vector<int>& out) {
+    const PacTree& t = g_pacState.tree;
+    for (int f : t.dirs[di].files) out.push_back(f);
+    for (int d : t.dirs[di].subs) pacCollectUnder(d, out);
+}
+
+static void pacImportOne(const std::string& intoPath, const std::wstring& diskFile,
+                         int& replaced, int& added) {
+    std::error_code ec;
+    const uint64_t sz = (uint64_t)fs::file_size(diskFile, ec);
+    for (auto& f : g_pacState.tree.files) {
+        if (_stricmp(f.path.c_str(), intoPath.c_str()) == 0) {
+            f.replaceFrom = diskFile;
+            f.size = sz;
+            ++replaced;
+            return;
+        }
+    }
+    PacTree::File nf;
+    nf.path = intoPath;
+    nf.size = sz;
+    nf.replaceFrom = diskFile;
+    nf.isNew = true;
+    g_pacState.tree.files.push_back(std::move(nf));
+    ++added;
+}
+
+static void pacImportFiles(const std::vector<std::wstring>& disk) {
+    const std::string prefix = pacDirPrefix(g_pacState.tree, g_pacState.cur);
+    int rep = 0, add = 0;
+    for (const auto& d : disk) {
+        const std::string leaf = ws2utf8(fs::path(d).filename().wstring());
+        pacImportOne(prefix.empty() ? leaf : (prefix + "/" + leaf), d, rep, add);
+    }
+    pacBuildTree();
+    g_pacState.sel.clear();
+    char b[160]; snprintf(b, sizeof b, T("导入完成:替换 %d,新增 %d(记得保存)"), rep, add);
+    pacToast(b);
+}
+
+static void pacImportFolder(const std::wstring& folder) {
+    const std::string prefix = pacDirPrefix(g_pacState.tree, g_pacState.cur);
+    int rep = 0, add = 0;
+    std::error_code ec;
+    for (auto it = fs::recursive_directory_iterator(folder, ec);
+         it != fs::recursive_directory_iterator(); it.increment(ec)) {
+        if (ec) break;
+        if (!it->is_regular_file(ec)) continue;
+        std::string rel = ws2utf8(fs::relative(it->path(), folder, ec).wstring());
+        for (char& c : rel) if (c == '\\') c = '/';
+        pacImportOne(prefix.empty() ? rel : (prefix + "/" + rel), it->path().wstring(), rep, add);
+    }
+    pacBuildTree();
+    g_pacState.sel.clear();
+    char b[160]; snprintf(b, sizeof b, T("导入完成:替换 %d,新增 %d(记得保存)"), rep, add);
+    pacToast(b);
+}
+
+static void pacStartSave(const fs::path& target) {
+    if (pacBusy() || !g_pacState.loaded) return;
+    if (g_pacJob.th.joinable()) g_pacJob.th.join();
+
+    auto items = std::make_shared<std::vector<mk::FpacItem>>();
+    uint64_t total = 0;
+    for (const auto& f : g_pacState.tree.files) {
+        items->push_back(mk::FpacItem{ f.path, f.size, f.offset, f.replaceFrom });
+        total += f.size;
+    }
+    g_pacJob.cur = 0; g_pacJob.total = total; g_pacJob.done = false; g_pacJob.running = true;
+    { std::lock_guard<std::mutex> lk(g_pacJob.mtx);
+      g_pacJob.title = T("正在保存…"); g_pacJob.result.clear(); g_pacJob.err.clear(); g_pacJob.reopen.clear(); }
+    const std::wstring src = g_pacState.path;
+
+    g_pacJob.th = std::thread([src, target, items]() {
+        std::string err;
+        auto prog = [](uint64_t n) { g_pacJob.cur += n; };
+        const bool ok = mk::FpacWrite(src, *items, target.wstring(), prog, err);
+        char b[300];
+        snprintf(b, sizeof b, T("已保存:%s(原件备份为同名 .bak)"),
+                 ws2utf8(fs::path(target).filename().wstring()).c_str());
+        { std::lock_guard<std::mutex> lk(g_pacJob.mtx);
+          g_pacJob.result = b; g_pacJob.err = err;
+          if (ok) g_pacJob.reopen = target.wstring(); }
+        g_pacJob.done = true;
+    });
+}
+
+static bool pacBrowseSave(std::wstring& out, const std::wstring& initName) {
+    static wchar_t buf[4096];
+    wcscpy_s(buf, initName.c_str());
+    OPENFILENAMEW ofn = {};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.lpstrFilter = L"pac 归档 (*.pac)\0*.pac\0所有文件 (*.*)\0*.*\0";
+    ofn.lpstrFile = buf;
+    ofn.nMaxFile = (DWORD)(sizeof(buf) / sizeof(wchar_t));
+    ofn.lpstrTitle = L"另存为";
+    ofn.lpstrDefExt = L"pac";
+    ofn.Flags = OFN_EXPLORER | OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+    if (!GetSaveFileNameW(&ofn)) return false;
+    out = buf;
+    return true;
+}
+
+static bool subFlatButton(const char* label, const char* id, bool enabled = true) {
+    const ImGuiStyle& st = ImGui::GetStyle();
+    static std::map<std::string, float> anim;
+    if (!enabled) ImGui::BeginDisabled();
+    const ImVec4 base = st.Colors[ImGuiCol_Button];
+    const std::string btnId = std::string(label) + "###" + id;
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, base);
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, base);
+    const bool clicked = ImGui::Button(btnId.c_str());
+    const bool hov = ImGui::IsItemHovered();
+    ImGui::PopStyleColor(2);
+    float& a = anim[id];
+    float sp = ImGui::GetIO().DeltaTime * 14.0f; if (sp > 1.0f) sp = 1.0f;
+    a += (((hov && enabled) ? 1.0f : 0.0f) - a) * sp;
+    if (a > 0.01f)
+        ImGui::GetWindowDrawList()->AddRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(),
+                                            IM_COL32(255, 255, 255, (int)(230 * a)), st.FrameRounding, 0, 2.0f);
+    if (!enabled) ImGui::EndDisabled();
+    return clicked && enabled;
+}
+
+static bool subStyledSelectable(const char* label, bool selected) {
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    ImGui::PushStyleColor(ImGuiCol_Header,        ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_HeaderActive,  ImVec4(0, 0, 0, 0));
+    dl->ChannelsSplit(2);
+    dl->ChannelsSetCurrent(1);
+    const bool clicked = ImGui::Selectable(label, selected);
+    const bool hov = ImGui::IsItemHovered();
+    const ImVec2 mn = ImGui::GetItemRectMin(), mx = ImGui::GetItemRectMax();
+    const float rnd = ImGui::GetStyle().FrameRounding;
+    const float pulse = 0.5f + 0.5f * sinf((float)ImGui::GetTime() * 5.5f);
+    dl->ChannelsSetCurrent(0);
+    if (selected) dl->AddRectFilled(mn, mx, ImGui::GetColorU32(ImGuiCol_Button, 0.55f), rnd);
+    dl->ChannelsMerge();
+    ImGui::PopStyleColor(3);
+    if (hov)      dl->AddRectFilled(mn, mx, IM_COL32(255, 255, 255, (int)(16 + 34 * pulse)), rnd);
+    if (selected) dl->AddRect(mn, mx, IM_COL32(255, 255, 255, 220), rnd, 0, 1.5f);
+    if (hov)      dl->AddRect(mn, mx, IM_COL32(255, 255, 255, (int)(80 + 140 * pulse)), rnd, 0, 1.5f);
+    return clicked;
+}
+
+static void pacDrawDirNode(int di) {
+    const PacTree& t = g_pacState.tree;
+    const PacTree::Dir& d = t.dirs[di];
+    ImGuiTreeNodeFlags f = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
+    if (d.subs.empty()) f |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+    if (di == g_pacState.cur) f |= ImGuiTreeNodeFlags_Selected;
+    if (di == 0) f |= ImGuiTreeNodeFlags_DefaultOpen;
+    if (g_pacState.pendingExpand >= 0)
+        for (int a = g_pacState.pendingExpand; a >= 0; a = t.dirs[a].parent)
+            if (a == di) { ImGui::SetNextItemOpen(true); break; }
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    ImGui::PushStyleColor(ImGuiCol_Header,        ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_HeaderActive,  ImVec4(0, 0, 0, 0));
+    dl->ChannelsSplit(2);
+    dl->ChannelsSetCurrent(1);
+    const bool open = ImGui::TreeNodeEx((void*)(intptr_t)di, f, "%s  (%d)",
+                                        di == 0 ? T("(根)") : d.name.c_str(), d.total);
+    const bool nodeHov = ImGui::IsItemHovered();
+    const ImVec2 nmn = ImGui::GetItemRectMin(), nmx = ImGui::GetItemRectMax();
+    const float rnd = ImGui::GetStyle().FrameRounding;
+    const float pulse = 0.5f + 0.5f * sinf((float)ImGui::GetTime() * 5.5f);
+    dl->ChannelsSetCurrent(0);
+    if (di == g_pacState.cur) dl->AddRectFilled(nmn, nmx, ImGui::GetColorU32(ImGuiCol_Button, 0.55f), rnd);
+    dl->ChannelsMerge();
+    ImGui::PopStyleColor(3);
+    if (nodeHov)              dl->AddRectFilled(nmn, nmx, IM_COL32(255, 255, 255, (int)(16 + 34 * pulse)), rnd);
+    if (di == g_pacState.cur) dl->AddRect(nmn, nmx, IM_COL32(255, 255, 255, 220), rnd, 0, 1.5f);
+    if (nodeHov)              dl->AddRect(nmn, nmx, IM_COL32(255, 255, 255, (int)(80 + 140 * pulse)), rnd, 0, 1.5f);
+    if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
+        g_pacState.cur = di; g_pacState.sel.clear(); g_pacState.lastClick = -1;
+    }
+    if (open && !d.subs.empty()) {
+        for (int sd : d.subs) pacDrawDirNode(sd);
+        ImGui::TreePop();
+    }
+}
+
+static bool pacContainsCI(const std::string& hay, const std::string& needleLower) {
+    if (needleLower.empty()) return true;
+    if (hay.size() < needleLower.size()) return false;
+    for (size_t i = 0; i + needleLower.size() <= hay.size(); ++i) {
+        size_t j = 0;
+        for (; j < needleLower.size(); ++j)
+            if ((char)tolower((unsigned char)hay[i + j]) != needleLower[j]) break;
+        if (j == needleLower.size()) return true;
+    }
+    return false;
+}
+
+static void drawPacContent() {
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(vp->WorkPos);
+    ImGui::SetNextWindowSize(vp->WorkSize);
+    ImGui::Begin("##pacroot", nullptr,
+                 ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+                 ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus);
+
+    pacJobFinish();
+    const bool busy = pacBusy();
+
+    if (subFlatButton(T("打开 .pac…"), "pac_open", !busy)) {
+        std::vector<std::wstring> sel;
+        if (browseFilesMulti(sel, L"pac 归档 (*.pac)\0*.pac\0所有文件 (*.*)\0*.*\0", L"选择一个 .pac")
+            && !sel.empty())
+            pacOpen(sel[0]);
+    }
+    ImGui::SameLine();
+    pacScanGamePacs();
+    ImGui::BeginDisabled(busy);
+    ImGui::SetNextItemWidth(300.0f * g_dpiScale);
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_Button));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImGui::GetStyleColorVec4(ImGuiCol_Button));
+    const bool comboOpen = ImGui::BeginCombo("##gamepac", T("游戏里的 pac…"));
+    ImGui::PopStyleColor(2);
+    if (comboOpen) {
+        if (g_pacState.gamePacs.empty())
+            ImGui::TextDisabled("%s", T("(未设置游戏目录,或 pac\\steam 下没有 .pac)"));
+        for (const auto& p : g_pacState.gamePacs) {
+            const std::string nm = ws2utf8(fs::path(p).filename().wstring());
+            const bool cur = _wcsicmp(p.c_str(), g_pacState.path.c_str()) == 0;
+            if (subStyledSelectable(nm.c_str(), cur)) pacOpen(p);
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::EndDisabled();
+    if (g_pacState.loaded) {
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(0.62f, 0.90f, 0.82f, 1.0f), "%s", g_pacState.title.c_str());
+        ImGui::SameLine();
+        ImGui::TextDisabled(T("条目 %d · 内容 %s · 文件 %s · 索引 %.1f 毫秒"),
+                            (int)g_pacState.tree.files.size(),
+                            pacHumanSize(g_pacState.tree.dirs[0].bytes).c_str(),
+                            pacHumanSize(g_pacState.fileBytes).c_str(), g_pacState.openMs);
+    }
+
+    if (!g_pacState.err.empty())
+        ImGui::TextColored(ImVec4(1.0f, 0.42f, 0.40f, 1.0f), "%s", g_pacState.err.c_str());
+    if (!g_pacState.loaded) {
+        ImGui::Separator();
+        ImGui::Spacing();
+        ImGui::TextDisabled("%s", T("还没打开任何 pac。点左上角「打开 .pac…」,或从「游戏里的 pac」里选一个。"));
+        ImGui::End();
+        return;
+    }
+
+    const PacTree& t = g_pacState.tree;
+
+    {
+        char lb[64];
+        snprintf(lb, sizeof lb, T("导出选中(%d)"), (int)g_pacState.sel.size());
+        if (subFlatButton(lb, "pac_exp_sel", !busy && !g_pacState.sel.empty())) {
+            std::wstring d;
+            if (browseFolder(d, L"选择导出目录"))
+                pacStartExport(std::vector<int>(g_pacState.sel.begin(), g_pacState.sel.end()), d);
+        }
+        ImGui::SameLine();
+        if (subFlatButton(T("导出当前目录"), "pac_exp_dir", !busy)) {
+            std::wstring d;
+            if (browseFolder(d, L"选择导出目录")) {
+                std::vector<int> idx; pacCollectUnder(g_pacState.cur, idx);
+                pacStartExport(std::move(idx), d);
+            }
+        }
+        ImGui::SameLine();
+        if (subFlatButton(T("导出全部"), "pac_exp_all", !busy)) {
+            std::wstring d;
+            if (browseFolder(d, L"选择导出目录")) {
+                std::vector<int> idx; pacCollectUnder(0, idx);
+                pacStartExport(std::move(idx), d);
+            }
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("|");
+        ImGui::SameLine();
+        if (subFlatButton(T("导入文件…"), "pac_imp_f", !busy)) {
+            std::vector<std::wstring> sel;
+            if (browseFilesMulti(sel, L"所有文件 (*.*)\0*.*\0", L"选择要导入的文件(可多选)") && !sel.empty())
+                pacImportFiles(sel);
+        }
+        ImGui::SameLine();
+        if (subFlatButton(T("导入文件夹…"), "pac_imp_d", !busy)) {
+            std::wstring d;
+            if (browseFolder(d, L"选择要导入的文件夹(按相对路径挂进当前目录)")) pacImportFolder(d);
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("|");
+        ImGui::SameLine();
+        if (subFlatButton(T("保存"), "pac_save", !busy)) g_pacState.askOverwrite = true;
+        ImGui::SameLine();
+        if (subFlatButton(T("另存为…"), "pac_saveas", !busy)) {
+            std::wstring d;
+            if (pacBrowseSave(d, fs::path(g_pacState.path).filename().wstring())) pacStartSave(d);
+        }
+        ImGui::SameLine();
+        if (subFlatButton(T("撤销改动"), "pac_revert", !busy && pacDirty())) pacOpen(g_pacState.path);
+        const int rep = pacChangedCount(false), add = pacChangedCount(true);
+        if (rep || add) {
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(1.00f, 0.70f, 0.30f, 1.0f), T("未保存:替换 %d,新增 %d"), rep, add);
+        }
+    }
+    ImGui::Separator();
+
+    const float leftW = ImGui::GetContentRegionAvail().x * 0.32f;
+    ImGui::BeginChild("pactree", ImVec2(leftW, 0), true);
+    pacDrawDirNode(0);
+    g_pacState.pendingExpand = -1;
+    ImGui::EndChild();
+    ImGui::SameLine();
+
+    ImGui::BeginChild("pacfiles", ImVec2(0, 0), true);
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(T("过滤"));
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(-1.0f);
+    ImGui::InputText("##pacfilter", g_pacState.filter, sizeof(g_pacState.filter));
+
+    static std::vector<int> shown;
+    shown.clear();
+    const bool searching = g_pacState.filter[0] != 0;
+    if (searching) {
+        std::string needle = g_pacState.filter;
+        for (char& c : needle) c = (char)tolower((unsigned char)c);
+        for (int i = 0; i < (int)t.files.size(); ++i)
+            if (pacContainsCI(t.files[i].path, needle)) shown.push_back(i);
+    } else {
+        shown = t.dirs[g_pacState.cur].files;
+    }
+
+    if (searching) ImGui::TextDisabled(T("在整个包里搜到 %d 项"), (int)shown.size());
+    else           ImGui::TextDisabled(T("当前目录 %s — 共 %d 项"),
+                                       pacDirPath(t, g_pacState.cur).c_str(), (int)shown.size());
+
+    const ImGuiTableFlags tf = ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg |
+                               ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV |
+                               ImGuiTableFlags_Sortable | ImGuiTableFlags_SortTristate;
+    if (ImGui::BeginTable("pactbl", 3, tf)) {
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableSetupColumn(T("名称"), ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_DefaultSort);
+        ImGui::TableSetupColumn(T("大小"), ImGuiTableColumnFlags_WidthFixed, 110.0f * g_dpiScale);
+        ImGui::TableSetupColumn(T("包内偏移"), ImGuiTableColumnFlags_WidthFixed, 140.0f * g_dpiScale);
+        ImGui::TableHeadersRow();
+
+        if (ImGuiTableSortSpecs* sp = ImGui::TableGetSortSpecs()) {
+            if (sp->SpecsCount > 0) {
+                const ImGuiTableColumnSortSpecs& c = sp->Specs[0];
+                const bool asc = (c.SortDirection == ImGuiSortDirection_Ascending);
+                std::sort(shown.begin(), shown.end(), [&](int a, int b) {
+                    int r = 0;
+                    if      (c.ColumnIndex == 1) r = (t.files[a].size   < t.files[b].size)   ? -1 : (t.files[a].size   > t.files[b].size)   ? 1 : 0;
+                    else if (c.ColumnIndex == 2) r = (t.files[a].offset < t.files[b].offset) ? -1 : (t.files[a].offset > t.files[b].offset) ? 1 : 0;
+                    if (r == 0) r = _stricmp(t.files[a].name.c_str(), t.files[b].name.c_str());
+                    return asc ? (r < 0) : (r > 0);
+                });
+            }
+        }
+
+        ImGuiListClipper clip;
+        clip.Begin((int)shown.size());
+        while (clip.Step()) {
+            for (int row = clip.DisplayStart; row < clip.DisplayEnd; ++row) {
+                const int fi = shown[row];
+                const PacTree::File& f = t.files[fi];
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::PushID(fi);
+                std::string label = searching ? f.path : f.name;
+                if (f.isNew)                   label = "＋ " + label;
+                else if (!f.replaceFrom.empty()) label = "● " + label;
+                if (f.isNew || !f.replaceFrom.empty())
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.00f, 0.78f, 0.35f, 1.0f));
+                const bool selected = g_pacState.sel.count(fi) > 0;
+                ImGui::PushStyleColor(ImGuiCol_Header,        ImVec4(0, 0, 0, 0));
+                ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0, 0, 0, 0));
+                ImGui::PushStyleColor(ImGuiCol_HeaderActive,  ImVec4(0, 0, 0, 0));
+                const bool clickedRow = ImGui::Selectable(label.c_str(), selected, ImGuiSelectableFlags_SpanAllColumns);
+                const bool rowHov = ImGui::IsItemHovered();
+                const ImVec2 rmn = ImGui::GetItemRectMin(), rmx = ImGui::GetItemRectMax();
+                ImGui::PopStyleColor(3);
+                {
+                    ImGui::TablePushBackgroundChannel();
+                    ImDrawList* dl = ImGui::GetWindowDrawList();
+                    const float rnd = ImGui::GetStyle().FrameRounding;
+                    const float pulse = 0.5f + 0.5f * sinf((float)ImGui::GetTime() * 5.5f);
+                    if (selected) {
+                        const bool prevSel = row > 0 && g_pacState.sel.count(shown[row - 1]) > 0;
+                        const bool nextSel = (row + 1 < (int)shown.size())
+                                             && g_pacState.sel.count(shown[row + 1]) > 0;
+                        ImVec2 a = rmn, b = rmx;
+                        if (prevSel) a.y -= rnd + 4.0f;
+                        if (nextSel) b.y += rnd + 4.0f;
+                        dl->PushClipRect(rmn, rmx, true);
+                        dl->AddRectFilled(a, b, ImGui::GetColorU32(ImGuiCol_Button, 0.55f), rnd);
+                        dl->AddRect(a, b, IM_COL32(255, 255, 255, 220), rnd, 0, 1.5f);
+                        dl->PopClipRect();
+                    }
+                    if (rowHov) {
+                        dl->AddRectFilled(rmn, rmx, IM_COL32(255, 255, 255, (int)(16 + 34 * pulse)), rnd);
+                        dl->AddRect(rmn, rmx, IM_COL32(255, 255, 255, (int)(80 + 140 * pulse)), rnd, 0, 1.5f);
+                    }
+                    ImGui::TablePopBackgroundChannel();
+                }
+                if (clickedRow) {
+                    const ImGuiIO& io = ImGui::GetIO();
+                    if (io.KeyCtrl) {
+                        if (selected) g_pacState.sel.erase(fi); else g_pacState.sel.insert(fi);
+                    } else if (io.KeyShift && g_pacState.lastClick >= 0) {
+                        int a = -1, b = -1;
+                        for (int k = 0; k < (int)shown.size(); ++k) {
+                            if (shown[k] == g_pacState.lastClick) a = k;
+                            if (shown[k] == fi) b = k;
+                        }
+                        if (a >= 0 && b >= 0) {
+                            if (a > b) std::swap(a, b);
+                            for (int k = a; k <= b; ++k) g_pacState.sel.insert(shown[k]);
+                        }
+                    } else {
+                        g_pacState.sel.clear();
+                        g_pacState.sel.insert(fi);
+                    }
+                    g_pacState.lastClick = fi;
+                }
+                if (ImGui::BeginPopupContextItem("pacrow")) {
+                    if (g_pacState.sel.count(fi) == 0) { g_pacState.sel.clear(); g_pacState.sel.insert(fi); }
+                    if (ImGui::MenuItem(T("复制内部路径"))) {
+                        ImGui::SetClipboardText(f.path.c_str());
+                        pacToast(T("已复制内部路径"));
+                    }
+                    if (ImGui::MenuItem(T("导出这些…"), nullptr, false, !busy)) {
+                        std::wstring d;
+                        if (browseFolder(d, L"选择导出目录"))
+                            pacStartExport(std::vector<int>(g_pacState.sel.begin(), g_pacState.sel.end()), d);
+                    }
+                    if (!f.replaceFrom.empty() && ImGui::MenuItem(T("取消这条的替换"))) {
+                        g_pacState.tree.files[fi].replaceFrom.clear();
+                        if (g_pacState.tree.files[fi].isNew) { pacOpen(g_pacState.path); }
+                    }
+                    ImGui::EndPopup();
+                }
+                if (f.isNew || !f.replaceFrom.empty()) ImGui::PopStyleColor();
+                if (!f.replaceFrom.empty() && ImGui::IsItemHovered())
+                    ImGui::SetTooltip(T("数据来自:%s"), ws2utf8(f.replaceFrom).c_str());
+                ImGui::PopID();
+                ImGui::TableSetColumnIndex(1);
+                ImGui::TextUnformatted(pacHumanSize(f.size).c_str());
+                ImGui::TableSetColumnIndex(2);
+                if (f.isNew) ImGui::TextDisabled("%s", T("(新增)"));
+                else         ImGui::Text("0x%llX", (unsigned long long)f.offset);
+            }
+        }
+        ImGui::EndTable();
+    }
+    ImGui::EndChild();
+
+    if (g_pacState.sel.size() == 1) {
+        const int fi = *g_pacState.sel.begin();
+        if (fi >= 0 && fi < (int)t.files.size()) {
+            ImGui::TextDisabled("%s", T("内部路径(资源覆盖时用它当键,右键可复制):"));
+            ImGui::SameLine();
+            ImGui::TextUnformatted(t.files[fi].path.c_str());
+        }
+    }
+    if (!g_pacState.toast.empty() && ImGui::GetTime() - g_pacState.toastAt < 4.0)
+        ImGui::TextColored(ImVec4(0.62f, 0.90f, 0.82f, 1.0f), "%s", g_pacState.toast.c_str());
+
+    if (g_pacState.askOverwrite) {
+        ImGui::OpenPopup(T("覆盖原包?###pacovr"));
+        g_pacState.askOverwrite = false;
+    }
+    if (ImGui::BeginPopupModal(T("覆盖原包?###pacovr"), nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text(T("要覆盖:%s"), ws2utf8(g_pacState.path).c_str());
+        ImGui::Spacing();
+        ImGui::TextDisabled("%s", T("原文件会先改名成同名的 .pac.bak 留底(改名不复制,几秒就好)。"));
+        ImGui::TextDisabled("%s", T("提示:给游戏加资源不必改原包 —— MOD 的 asset 透传就能覆盖,且不动原版文件。"));
+        ImGui::Separator();
+        if (subFlatButton(T("覆盖"), "ovr_yes")) { pacStartSave(g_pacState.path); ImGui::CloseCurrentPopup(); }
+        ImGui::SameLine();
+        if (subFlatButton(T("取消"), "ovr_no")) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+
+    if (busy) {
+        ImGui::OpenPopup(T("请稍候###pacjob"));
+    }
+    if (ImGui::BeginPopupModal(T("请稍候###pacjob"), nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        std::string ttl;
+        { std::lock_guard<std::mutex> lk(g_pacJob.mtx); ttl = g_pacJob.title; }
+        ImGui::TextUnformatted(ttl.c_str());
+        const uint64_t c = g_pacJob.cur.load(), tt = g_pacJob.total.load();
+        char ov[80];
+        snprintf(ov, sizeof ov, "%s / %s", pacHumanSize(c).c_str(), pacHumanSize(tt).c_str());
+        ImGui::ProgressBar(tt ? (float)((double)c / (double)tt) : 0.0f, ImVec2(360 * g_dpiScale, 0), ov);
+        if (!busy) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+
+    ImGui::End();
+}
+
+static bool pacWindowEnsure() {
+    if (g_pacWin.hwnd) return true;
+    if (!g_pd3dDevice) return false;
+
+    static const wchar_t* kSubClass = L"ED9ModManagerSub";
+    static bool registered = false;
+    if (!registered) {
+        WNDCLASSEXW wc = { sizeof(wc), CS_CLASSDC, SubWndProc, 0, 0, g_hInst,
+                           g_hIconBig, nullptr, nullptr, nullptr, kSubClass, g_hIconSm };
+        RegisterClassExW(&wc);
+        registered = true;
+    }
+    g_pacWin.hwnd = CreateWindowW(kSubClass, L"PAC", WS_OVERLAPPEDWINDOW,
+                                  CW_USEDEFAULT, CW_USEDEFAULT,
+                                  (int)(900 * g_dpiScale), (int)(600 * g_dpiScale),
+                                  nullptr, nullptr, g_hInst, &g_pacWin);
+    if (!g_pacWin.hwnd) return false;
+    if (!subCreateSwapChain(g_pacWin)) { DestroyWindow(g_pacWin.hwnd); g_pacWin.hwnd = nullptr; return false; }
+
+    ImGuiContext* prev = ImGui::GetCurrentContext();
+    g_pacWin.ctx = ImGui::CreateContext();
+    ImGui::SetCurrentContext(g_pacWin.ctx);
+    ImGuiIO& io = ImGui::GetIO();
+    io.IniFilename = nullptr;
+    ImGui::StyleColorsDark();
+    applyModernStyle();
+    ImGui::GetStyle().ScaleAllSizes(g_dpiScale);
+    static ImVector<ImWchar> subRanges;
+    if (subRanges.empty()) {
+        ImFontGlyphRangesBuilder gb;
+        gb.AddRanges(io.Fonts->GetGlyphRangesChineseSimplifiedCommon());
+        gb.AddText(kSubExtraGlyphs);
+        gb.BuildRanges(&subRanges);
+    }
+    const float px = 18.0f * g_dpiScale;
+    if (!io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\msyh.ttc", px, nullptr, subRanges.Data))
+        if (!io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\simhei.ttf", px, nullptr, subRanges.Data))
+            io.Fonts->AddFontDefault();
+    ImGui_ImplWin32_Init(g_pacWin.hwnd);
+    ImGui_ImplDX11_Init(g_pd3dDevice, g_pd3dDeviceContext);
+    ImGui::SetCurrentContext(prev);
+    return true;
+}
+
+static void PacWindowShow() {
+    if (!pacWindowEnsure()) return;
+    ShowWindow(g_pacWin.hwnd, SW_SHOW);
+    SetForegroundWindow(g_pacWin.hwnd);
+    g_pacWin.visible = true;
+}
+
+static void PacWindowFrame() {
+    if (!g_pacWin.visible || !g_pacWin.ctx || !g_pacWin.rtv) return;
+    if (IsIconic(g_pacWin.hwnd)) return;
+    ImGuiContext* prev = ImGui::GetCurrentContext();
+    ImGui::SetCurrentContext(g_pacWin.ctx);
+    ImGui_ImplDX11_NewFrame();
+    ImGui_ImplWin32_NewFrame();
+    ImGui::NewFrame();
+    drawPacContent();
+    ImGui::Render();
+    const float clear[4] = { 0.10f, 0.11f, 0.13f, 1.0f };
+    g_pd3dDeviceContext->OMSetRenderTargets(1, &g_pacWin.rtv, nullptr);
+    g_pd3dDeviceContext->ClearRenderTargetView(g_pacWin.rtv, clear);
+    ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+    g_pacWin.swap->Present(0, 0);
+    ImGui::SetCurrentContext(prev);
+}
+
+static void PacWindowShutdown() {
+    if (g_pacWin.ctx) {
+        ImGuiContext* prev = ImGui::GetCurrentContext();
+        ImGui::SetCurrentContext(g_pacWin.ctx);
+        ImGui_ImplDX11_Shutdown();
+        ImGui_ImplWin32_Shutdown();
+        ImGui::SetCurrentContext(prev == g_pacWin.ctx ? nullptr : prev);
+        ImGui::DestroyContext(g_pacWin.ctx);
+        g_pacWin.ctx = nullptr;
+    }
+    subFreeRTV(g_pacWin);
+    if (g_pacWin.swap) { g_pacWin.swap->Release(); g_pacWin.swap = nullptr; }
+    if (g_pacWin.hwnd) { DestroyWindow(g_pacWin.hwnd); g_pacWin.hwnd = nullptr; }
+}
+
 int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
     int cliRet = tryRunCli();
     if (cliRet >= 0) return cliRet;
@@ -1803,6 +3892,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
     HICON hIconBig = (HICON)LoadImageW(hInst, MAKEINTRESOURCEW(IDI_APPICON), IMAGE_ICON, 0, 0, LR_DEFAULTSIZE);
     HICON hIconSm  = (HICON)LoadImageW(hInst, MAKEINTRESOURCEW(IDI_APPICON), IMAGE_ICON,
                                        GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), 0);
+    g_hInst = hInst; g_hIconBig = hIconBig; g_hIconSm = hIconSm;
     WNDCLASSEXW wc = { sizeof(wc), CS_CLASSDC, WndProc, 0, 0, hInst, hIconBig, nullptr, nullptr, nullptr, L"ED9ModManager", hIconSm };
     RegisterClassExW(&wc);
     HWND hwnd = CreateWindowW(wc.lpszClassName, L"ED9 Mod Manager", WS_OVERLAPPEDWINDOW,
@@ -1855,8 +3945,16 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
     ImGui_ImplDX11_Init(g_pd3dDevice, g_pd3dDeviceContext);
     LoadBackgroundTexture(hInst);
 
+    cleanupOldFiles();
+    startUpdateCheck();
+
     App app;
     loadIniGameDir(app);
+    if (app.gameDir[0]) {
+        std::wstring g = utf82ws(app.gameDir);
+        if (!g.empty() && g.back() != L'\\' && g.back() != L'/') g += L'\\';
+        DeleteFileW((g + L"ED9ModManager-update.zip").c_str());
+    }
     if (app.gameDir[0]) refresh(app);
 
     bool done = false;
@@ -1881,9 +3979,13 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
         g_pd3dDeviceContext->ClearRenderTargetView(g_mainRenderTargetView, clear);
         ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
         g_pSwapChain->Present(1, 0);
+
+        g_pacGameDir = app.gameDir;
+        PacWindowFrame();
     }
 
     closeWatch(app);
+    PacWindowShutdown();
     if (g_bgSRV) { g_bgSRV->Release(); g_bgSRV = nullptr; }
     ImGui_ImplDX11_Shutdown();
     ImGui_ImplWin32_Shutdown();

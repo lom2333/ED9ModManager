@@ -12,7 +12,6 @@ namespace tbl_merge {
 
 using json = nlohmann::json;
 
-// json 值 → TblValue(按字段类型)
 static TblValue jsonToValue(const std::string& type, const json& jv) {
     TblValue v;
     if (TblTypeIsToffset(type)) {
@@ -24,7 +23,7 @@ static TblValue jsonToValue(const std::string& type, const json& jv) {
     } else if (TblTypeIsFloat(type)) {
         v.kind = TblValue::K::Flt;
         if (jv.is_number()) v.f = jv.get<double>();
-    } else {  // 整型标量(含未知 → 当 int 0)
+    } else {
         v.kind = TblValue::K::Int;
         if (jv.is_number()) v.i = jv.get<int64_t>();
         else if (jv.is_boolean()) v.i = jv.get<bool>() ? 1 : 0;
@@ -32,7 +31,6 @@ static TblValue jsonToValue(const std::string& type, const json& jv) {
     return v;
 }
 
-// 默认值(缺字段时)
 static TblValue defaultValue(const std::string& type) {
     TblValue v;
     if (TblTypeIsToffset(type)) v.kind = TblValue::K::Str;
@@ -51,7 +49,6 @@ static bool valueMatches(const TblValue& v, const json& jv) {
     }
 }
 
-// 字段值字符串化(冲突报告 + 等值比较用)
 static std::string valueToString(const TblValue& v) {
     switch (v.kind) {
         case TblValue::K::Str: return v.s;
@@ -66,7 +63,6 @@ static std::string valueToString(const TblValue& v) {
     }
 }
 
-// 行可读标识:优先 name/id 字段,否则首个文本字段值,否则 #行号。
 static std::string rowLabel(const TblRowG& row, size_t index) {
     if (const TblValue* p = row.find("name")) if (p->kind == TblValue::K::Str && !p->s.empty()) return p->s;
     if (const TblValue* p = row.find("id"))   return valueToString(*p);
@@ -100,8 +96,6 @@ bool ApplyTblPatch(const std::vector<uint8_t>& orig, const std::wstring& schemas
         return nullptr;
     };
 
-    // 1) edit_rows:对每条,命中所有 match 的行 → set 覆盖。
-    //    记录每个 (行,字段) 最近写入者(值+mod):若被另一 mod 写成不同值 → 冲突。
     struct LastWrite { std::string value; std::string mod; };
     std::map<const TblRowG*, std::map<std::string, LastWrite>> writeLog;
     for (const EditOp& ed : edits) {
@@ -117,10 +111,9 @@ bool ApplyTblPatch(const std::vector<uint8_t>& orig, const std::wstring& schemas
             if (!m) continue;
             if (ed.set.is_object()) for (auto it = ed.set.begin(); it != ed.set.end(); ++it) {
                 const std::string* tp = typeOf(it.key());
-                if (!tp) continue;  // 不在 schema 的字段忽略
+                if (!tp) continue;
                 TblValue nv = jsonToValue(*tp, it.value());
                 std::string nvStr = valueToString(nv);
-                // 冲突检测:同行同字段已被别的 mod 写成不同值
                 if (conflicts) {
                     auto& fieldLog = writeLog[&row];
                     auto wit = fieldLog.find(it.key());
@@ -139,7 +132,6 @@ bool ApplyTblPatch(const std::vector<uint8_t>& orig, const std::wstring& schemas
         }
     }
 
-    // 2) add_rows:按 schema 顺序建行(缺字段补默认)
     for (const json& jr : addRows) {
         if (!jr.is_object()) continue;
         TblRowG row;
@@ -154,24 +146,20 @@ bool ApplyTblPatch(const std::vector<uint8_t>& orig, const std::wstring& schemas
     return true;
 }
 
-// ---- 池表(带未建模字符串池,如 t_npc)字节级处理 ----
-
-// 解析单表头 #TBL 的头部字段。返回 false 表示非单表头/非法。
 static bool parseSingleHeader(const std::vector<uint8_t>& d, std::string& name,
                               uint32_t& start, uint32_t& length, uint32_t& count) {
     if (d.size() < 88 || std::memcmp(d.data(), "#TBL", 4) != 0) return false;
     uint32_t hc; std::memcpy(&hc, &d[4], 4);
-    if (hc != 1) return false;                       // 仅单表头
+    if (hc != 1) return false;
     const uint8_t* h = &d[8];
     size_t n = 0; while (n < 64 && h[n]) ++n;
     name.assign((const char*)h, n);
-    std::memcpy(&start, &d[8 + 64 + 4], 4);          // start @ header+0x44
-    std::memcpy(&length, &d[8 + 64 + 8], 4);         // length(stride) @ +0x48
-    std::memcpy(&count, &d[8 + 64 + 12], 4);         // count @ +0x4C
+    std::memcpy(&start, &d[8 + 64 + 4], 4);
+    std::memcpy(&length, &d[8 + 64 + 8], 4);
+    std::memcpy(&count, &d[8 + 64 + 12], 4);
     return true;
 }
 
-// 取该表 schema 的字段布局(offset/type/width);含变长/未知字段(width0)→ 返回 false。
 static bool fieldLayout(const std::wstring& schemasDir, const std::string& game,
                         const std::string& name, uint32_t length,
                         std::vector<std::pair<size_t, TblField>>& out, bool& hasVarField, std::string& err) {
@@ -196,35 +184,28 @@ bool TblHasUnmodeledPool(const std::vector<uint8_t>& orig, const std::wstring& s
     if (!parseSingleHeader(orig, name, start, length, count)) return false;
     std::vector<std::pair<size_t, TblField>> layout; bool hasVar = false; std::string err;
     if (!fieldLayout(schemasDir, preferredGame, name, length, layout, hasVar, err)) return false;
-    if (hasVar) return false;                         // 有 toffset/array → 池已被建模
+    if (hasVar) return false;
     size_t poolStart = (size_t)start + (size_t)length * count;
-    return orig.size() > poolStart + 16;              // 行区之后还有(非对齐填充的)数据 → 未建模池
+    return orig.size() > poolStart + 16;
 }
 
-// NPCParam 字段友好别名(中文/英文)→ 真实 schema 字段名。这是唯一来源:
-// tbl_merge 的 aliasField 与 orchestrator 的 add_npc「已提供」追踪都走它,保证一致。
-// 中文名按字段作用命名(已知作用的取语义名,作用未明的按 schema 诚实译名);真实字段名(packed_id 等)仍可直接用。
-// 别名映射以 NPCParam 160 字节行(mp4000 等常见 NPC)为准;152 字节变体里不存在的字段名会在套用时被自动跳过。
 std::string AliasNpcParamField(const std::string& key) {
     static const std::unordered_map<std::string, std::string> kMap = {
-        // —— 常用 / 已知作用 ——
-        { "模型", "packed_id" },        { "model", "packed_id" },        // 模型 = 角色 packed_id(= t_name 的 character_id)
-        { "位置X", "pos_x" },           { "坐标X", "pos_x" },            // 世界坐标 X
-        { "位置Y", "pos_y" },           { "坐标Y", "pos_y" },            // 世界坐标 Y(高度)
-        { "位置Z", "pos_z" },           { "坐标Z", "pos_z" },            // 世界坐标 Z
-        { "朝向", "yaw_deg" },          { "yaw", "yaw_deg" },            // 朝向(yaw,单位度;0=默认朝向)
-        { "对话", "resource_ref_78" },  { "talk", "resource_ref_78" },   // 对话函数引用 "<模块>.TK_xxx"
-        { "动作", "resource_ref_68" },  { "anim", "resource_ref_68" },   // 待机动作 npc_setting.AniEv*
-        { "注视距离", "resource_ref_60" }, { "lookdist", "resource_ref_60" }, // npc_setting.LookDistance_*
-        { "语音", "resource_ref_80" },  { "voice", "resource_ref_80" },  // 叫卖语音 map.YobikomiV_*
-        { "商店类型", "param_98" },                                      // 0=普通 / 1=商人 / 2=商店
-        { "启用标志", "flags_18" },                                      // =1 启用该 NPC
-        { "交互类型", "type_28" },                                       // =1 普通交互
-        { "资源90", "resource_ref_90" },                                 // 备用资源引用
-        // —— 行为码块头(借 behavior_from 整块而来,通常不手填)——
+        { "模型", "packed_id" },        { "model", "packed_id" },
+        { "位置X", "pos_x" },           { "坐标X", "pos_x" },
+        { "位置Y", "pos_y" },           { "坐标Y", "pos_y" },
+        { "位置Z", "pos_z" },           { "坐标Z", "pos_z" },
+        { "朝向", "yaw_deg" },          { "yaw", "yaw_deg" },
+        { "对话", "resource_ref_78" },  { "talk", "resource_ref_78" },
+        { "动作", "resource_ref_68" },  { "anim", "resource_ref_68" },
+        { "注视距离", "resource_ref_60" }, { "lookdist", "resource_ref_60" },
+        { "语音", "resource_ref_80" },  { "voice", "resource_ref_80" },
+        { "商店类型", "param_98" },
+        { "启用标志", "flags_18" },
+        { "交互类型", "type_28" },
+        { "资源90", "resource_ref_90" },
         { "行为引用08", "tagged_ref_08" }, { "行为引用10", "tagged_ref_10" },
         { "行为引用20", "tagged_ref_20" }, { "行为引用58", "tagged_ref_58" },
-        // —— 作用未明,按 schema 诚实译名 ——
         { "标志04", "flags_04" },       { "标志1C", "flags_1C" },
         { "浮点参数3C", "param_float_3C" }, { "浮点参数40", "param_float_40" },
         { "参数44", "param_44" },       { "浮点48", "float_48" },        { "浮点4C", "float_4C" },
@@ -236,7 +217,6 @@ std::string AliasNpcParamField(const std::string& key) {
     return it == kMap.end() ? key : it->second;
 }
 
-// clone_rows.set 的友好别名 → 真实字段名(让配置可读,raw 名也仍可用)
 static std::string aliasField(const std::string& table, const std::string& key) {
     if (table == "NPCParam") return AliasNpcParamField(key);
     return key;
@@ -264,20 +244,18 @@ bool CloneRowsPoolTable(const std::vector<uint8_t>& orig, const std::wstring& sc
     const size_t delta = stride * added;
 
     std::vector<uint8_t> pool(orig.begin() + poolStart, orig.end());
-    std::vector<uint8_t> rows(orig.begin() + start, orig.begin() + poolStart);  // 可变行区
-    std::vector<uint8_t> appendBuf;                          // 追加到池尾的新字符串(自定义对话/资源 tag)
-    const size_t newPoolStart = (size_t)start + stride * (count + added);  // 新文件里池起点
+    std::vector<uint8_t> rows(orig.begin() + start, orig.begin() + poolStart);
+    std::vector<uint8_t> appendBuf;
+    const size_t newPoolStart = (size_t)start + stride * (count + added);
     const size_t origPoolSize = pool.size();
 
     auto gu64 = [](const std::vector<uint8_t>& b, size_t p) { uint64_t v; std::memcpy(&v, &b[p], 8); return v; };
     auto su64 = [](std::vector<uint8_t>& b, size_t p, uint64_t v) { std::memcpy(&b[p], &v, 8); };
-    // 现有行:把指向池(>=poolStart)的 8 字节字段整体 +delta
     for (uint32_t ri = 0; ri < count; ++ri) {
         size_t bo = (size_t)ri * stride;
         for (const auto& fo : layout)
             if (TblTypeWidth(fo.second.type) == 8) { uint64_t v = gu64(rows, bo + fo.first); if (v >= poolStart) su64(rows, bo + fo.first, v + delta); }
     }
-    // 逐 clone:复制源行(用原始字节)→ 引用 +delta → 套 set
     for (const json& op : cloneOps) {
         if (!op.is_object()) { err = "clone: op 非对象"; return false; }
         int fromIdx = op.value("from_index", 0);
@@ -294,7 +272,6 @@ bool CloneRowsPoolTable(const std::vector<uint8_t>& orig, const std::wstring& sc
                     if (fo.second.name != realKey) continue;
                     uint32_t w = TblTypeWidth(fo.second.type);
                     if (it.value().is_string() && w == 8) {
-                        // 引用字段设为字符串 → 追加进池尾,字段指过去(自定义对话 tag/资源,如 "MyNpc.TK_xxx")
                         std::string s = it.value().get<std::string>();
                         uint64_t off = newPoolStart + origPoolSize + appendBuf.size();
                         appendBuf.insert(appendBuf.end(), s.begin(), s.end());
@@ -308,16 +285,15 @@ bool CloneRowsPoolTable(const std::vector<uint8_t>& orig, const std::wstring& sc
             }
         rows.insert(rows.end(), row.begin(), row.end());
     }
-    // 拼新文件:头部(count+added)+ 行 + 池 + 追加串
     out.assign(orig.begin(), orig.begin() + start);
     uint32_t newCount = count + (uint32_t)added;
-    std::memcpy(&out[8 + 64 + 12], &newCount, 4);     // 更新 count
+    std::memcpy(&out[8 + 64 + 12], &newCount, 4);
     out.insert(out.end(), rows.begin(), rows.end());
     out.insert(out.end(), pool.begin(), pool.end());
     out.insert(out.end(), appendBuf.begin(), appendBuf.end());
     return true;
 }
 
-} // namespace tbl_merge
-} // namespace modkit
-} // namespace ed9loader
+}
+}
+}

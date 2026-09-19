@@ -3,8 +3,6 @@
 #include <algorithm>
 
 namespace ed9 {
-
-// ---------------- 读取辅助(小端) ----------------
 static uint8_t  rdU8 (const std::vector<uint8_t>& b, size_t o){ return b.at(o); }
 static uint16_t rdU16(const std::vector<uint8_t>& b, size_t o){ return (uint16_t)(b.at(o) | (b.at(o+1)<<8)); }
 static uint32_t rdU32(const std::vector<uint8_t>& b, size_t o){
@@ -29,45 +27,40 @@ static Slot slotFromU32(const std::vector<uint8_t>& b, uint32_t v){
     return s;
 }
 
-// ---------------- 写入辅助 ----------------
 static void wrU8 (std::vector<uint8_t>& b, uint8_t v){ b.push_back(v); }
 static void wrU16(std::vector<uint8_t>& b, uint16_t v){ b.push_back((uint8_t)(v&0xFF)); b.push_back((uint8_t)((v>>8)&0xFF)); }
 static void wrU32(std::vector<uint8_t>& b, uint32_t v){ for(int i=0;i<4;i++) b.push_back((uint8_t)((v>>(8*i))&0xFF)); }
 static void setU32(std::vector<uint8_t>& b, size_t o, uint32_t v){ for(int i=0;i<4;i++) b[o+i]=(uint8_t)((v>>(8*i))&0xFF); }
 
-// ---------------- 指令字节长度(含 opcode) ----------------
 uint32_t instrLen(const Instr& in){
     switch(in.op){
-        case 0x00: return 2 + in.pushSize;       // op + size + value
-        case 0x01: return 2;                      // POP u8
+        case 0x00: return 2 + in.pushSize;
+        case 0x01: return 2;
         case 0x02: case 0x03: case 0x04: case 0x05:
-        case 0x06: case 0x07: case 0x08: return 5; // i32
-        case 0x09: case 0x0A: return 2;            // u8
-        case 0x0B: return 5;                       // JUMP u32
-        case 0x0C: return 3;                       // CALL u16
-        case 0x0D: return 1;                       // EXIT
-        case 0x0E: case 0x0F: return 5;            // JUMPIF u32
-        case 0x22: case 0x23: return 10;           // CALLFROMSCRIPT u32+u32+u8
-        case 0x24: return 4;                       // RUNCMD u8*3
-        case 0x25: return 5;                       // PUSHRETURNADDR u32
-        case 0x26: return 3;                       // ADDLINEMARKER u16
-        case 0x27: return 2;                       // POP2 u8
-        case 0x28: return 5;                       // DEBUG u32
+        case 0x06: case 0x07: case 0x08: return 5;
+        case 0x09: case 0x0A: return 2;
+        case 0x0B: return 5;
+        case 0x0C: return 3;
+        case 0x0D: return 1;
+        case 0x0E: case 0x0F: return 5;
+        case 0x22: case 0x23: return 10;
+        case 0x24: return 4;
+        case 0x25: return 5;
+        case 0x26: return 3;
+        case 0x27: return 2;
+        case 0x28: return 5;
         default:
-            if (in.op >= 0x10 && in.op <= 0x21) return 1; // 算术/逻辑一元二元
+            if (in.op >= 0x10 && in.op <= 0x21) return 1;
             throw std::runtime_error("instrLen: 未知 opcode " + std::to_string(in.op));
     }
 }
 
-// ============================================================
-// 解析 dat -> Script
-// ============================================================
 Script parse(const std::vector<uint8_t>& buf){
     if (buf.size() < 0x18 || std::memcmp(buf.data(), "#scp", 4) != 0)
         throw std::runtime_error("不是 #scp 文件");
 
     Script sc;
-    uint32_t startFuncHdr   = rdU32(buf, 0x04); // = 0x18
+    uint32_t startFuncHdr   = rdU32(buf, 0x04);
     uint32_t nfunc          = rdU32(buf, 0x08);
     uint32_t startScriptVars= rdU32(buf, 0x0C);
     sc.nScriptVarIn  = rdU32(buf, 0x10);
@@ -100,7 +93,7 @@ Script parse(const std::vector<uint8_t>& buf){
             StructDef sd;
             sd.id      = rdI32(buf, sb+0x00);
             sd.nb_sth1 = rdU16(buf, sb+0x04);
-            uint16_t cnt = rdU16(buf, sb+0x06);   // = array2.size()/2
+            uint16_t cnt = rdU16(buf, sb+0x06);
             uint32_t ap  = rdU32(buf, sb+0x08);
             for (uint32_t j=0;j<(uint32_t)cnt*2;j++)
                 sd.array2.push_back(slotFromU32(buf, rdU32(buf, ap+4*j)));
@@ -108,15 +101,13 @@ Script parse(const std::vector<uint8_t>& buf){
         }
     }
 
-    // script vars 区
-    uint32_t nSV = (sc.nScriptVarIn + sc.nScriptVarOut) * 2; // u32 数
+    uint32_t nSV = (sc.nScriptVarIn + sc.nScriptVarOut) * 2;
     for (uint32_t k=0;k<nSV;k++)
         sc.scriptVars.push_back(slotFromU32(buf, rdU32(buf, startScriptVars + 4*k)));
 
     uint32_t startCode = startScriptVars + nSV*4;
     for (uint32_t i=0;i<nfunc;i++) sc.funcs[i].start = codeAddr[i] - startCode;
 
-    // 计算字符串区下界 M1 = 所有"非 code"字符串指针的最小地址
     uint32_t curMin = (uint32_t)buf.size();
     auto consider = [&](uint32_t addr){ if (addr < curMin) curMin = addr; };
     for (uint32_t i=0;i<nfunc;i++){
@@ -124,9 +115,8 @@ Script parse(const std::vector<uint8_t>& buf){
         uint32_t namePtr = rdU32(buf, base+0x1C);
         if ((namePtr & TAG_MASK)==TAG_STR) consider(namePtr & ADDR_MASK);
         Func& f = sc.funcs[i];
-        for (auto& s: f.varout) if (s.isStr) {/*地址已解析,需重新取*/}
+        for (auto& s: f.varout) if (s.isStr) {}
     }
-    // 直接扫描各指针字段地址(varout/in/structparams/scriptvar/funcname)更稳:重读原始 u32
     auto scanSlotAddr = [&](uint32_t rawAddrField){
         uint32_t v = rawAddrField;
         if ((v & TAG_MASK)==TAG_STR) consider(v & ADDR_MASK);
@@ -149,7 +139,6 @@ Script parse(const std::vector<uint8_t>& buf){
     }
     for (uint32_t k=0;k<nSV;k++) scanSlotAddr(rdU32(buf, startScriptVars + 4*k));
 
-    // 反汇编整个 code 区[startCode, startStrings)。动态收紧 curMin(遇到更小的 code 串指针)。
     std::vector<Instr> flat;
     size_t cur = startCode;
     while (cur < curMin){
@@ -188,17 +177,16 @@ Script parse(const std::vector<uint8_t>& buf){
             case 0x25: in.jumpTargetOff = rdU32(buf, cur) - startCode; cur+=4; break;
             case 0x26: in.u16 = rdU16(buf, cur); cur+=2; break;
             case 0x27: in.u8 = rdU8(buf, cur); cur+=1; break;
-            case 0x28: in.i32 = rdI32(buf, cur); cur+=4; break; // DEBUG:语义未知,原样保留
+            case 0x28: in.i32 = rdI32(buf, cur); cur+=4; break;
             default:
-                if (in.op >= 0x10 && in.op <= 0x21) break; // 无操作数
+                if (in.op >= 0x10 && in.op <= 0x21) break;
                 throw std::runtime_error("parse: 未知 opcode 0x" + std::to_string(in.op) +
                                          " @code_off " + std::to_string(in.codeOff));
         }
         flat.push_back(std::move(in));
     }
 
-    // 按 start 切分到各函数(code 顺序 = start 升序)
-    std::vector<uint32_t> order; // 函数下标按 start 升序
+    std::vector<uint32_t> order;
     for (uint32_t i=0;i<nfunc;i++) order.push_back(i);
     std::sort(order.begin(), order.end(), [&](uint32_t a, uint32_t b){ return sc.funcs[a].start < sc.funcs[b].start; });
 
@@ -209,16 +197,14 @@ Script parse(const std::vector<uint8_t>& buf){
         for (auto& in : flat) if (in.codeOff >= lo && in.codeOff < hi) sc.funcs[fi].code.push_back(in);
     }
 
-    // 识别 CallFunction 返回地址:CALL(0x0C) 之后的绝对地址,会被某个 PUSHUNDEFINED 压栈。
-    // 返回地址 PUSH 必在该 CALL 之前且最接近(funcid,retaddr,args,CALL 的栈序)。
     for (auto& f : sc.funcs){
         for (size_t ci=0; ci<f.code.size(); ci++){
             if (f.code[ci].op != 0x0C) continue;
-            uint32_t retVal = (startCode + f.code[ci].codeOff + 3) & ADDR_MASK; // CALL 长 3 字节
-            for (size_t k=ci; k-- > 0; ){  // 从 CALL 往前找最近的匹配 PUSHUNDEFINED
+            uint32_t retVal = (startCode + f.code[ci].codeOff + 3) & ADDR_MASK;
+            for (size_t k=ci; k-- > 0; ){
                 Instr& p = f.code[k];
                 if (p.op==0x00 && !p.push.isStr && !p.isRetAddr && p.push.raw == retVal){
-                    p.isRetAddr = true; p.retTarget = f.code[ci].codeOff; break;  // 存 CALL 自身 codeOff
+                    p.isRetAddr = true; p.retTarget = f.code[ci].codeOff; break;
                 }
             }
         }
@@ -226,9 +212,6 @@ Script parse(const std::vector<uint8_t>& buf){
     return sc;
 }
 
-// ============================================================
-// 组装 Script -> dat
-// ============================================================
 std::vector<uint8_t> assemble(const Script& sc){
     uint32_t nfunc = (uint32_t)sc.funcs.size();
     uint32_t total_out=0, total_in=0, total_structs=0, size_params=0;
@@ -246,12 +229,10 @@ std::vector<uint8_t> assemble(const Script& sc){
     uint32_t startScriptVars   = startStructParams + size_params;
     uint32_t startCode = startScriptVars + (uint32_t)sc.scriptVars.size()*4;
 
-    // code 顺序 = start 升序
     std::vector<uint32_t> order;
     for (uint32_t i=0;i<nfunc;i++) order.push_back(i);
     std::sort(order.begin(), order.end(), [&](uint32_t a, uint32_t b){ return sc.funcs[a].start < sc.funcs[b].start; });
 
-    // 重算 code 偏移
     std::map<uint32_t,uint32_t> oldToNew;
     std::vector<uint32_t> funcNewStart(nfunc, 0);
     uint32_t codeLen = 0;
@@ -260,12 +241,9 @@ std::vector<uint8_t> assemble(const Script& sc){
         funcNewStart[fi] = codeLen;
         for (auto& in : sc.funcs[fi].code){ oldToNew[in.codeOff] = codeLen; codeLen += instrLen(in); }
     }
-    oldToNew[ (uint32_t)0 ] = oldToNew.count(0)? oldToNew[0] : 0; // 保险
+    oldToNew[ (uint32_t)0 ] = oldToNew.count(0)? oldToNew[0] : 0;
     uint32_t startStrings = startCode + codeLen;
 
-    // 字符串布局(⚠不去重,匹配 kurotools/游戏要求):每个字符串引用各存一份独立副本。
-    //  早期曾复刻"原始编译器去重",但去重会让 struct 镜像复用 code 区副本,导致游戏读不到第2+个文本。
-    //  收集序: code串(code顺序) -> funcname -> varout -> varin -> structparam -> scriptvar。
     std::vector<uint8_t> strSec;
     uint32_t sa = startStrings;
     auto appendStr = [&](const std::string& s)->uint32_t {
@@ -273,14 +251,11 @@ std::vector<uint8_t> assemble(const Script& sc){
         for (char c: s) strSec.push_back((uint8_t)c);
         strSec.push_back(0); sa += (uint32_t)s.size()+1; return off;
     };
-    std::map<const Slot*,uint32_t> slotOff;     // 每个 slot 的独立字符串偏移
-    std::vector<uint32_t> nameOff(nfunc, 0);    // 每个函数名的独立偏移
+    std::map<const Slot*,uint32_t> slotOff;
+    std::vector<uint32_t> nameOff(nfunc, 0);
 
-    // 编码 code(同时按 code 顺序分配 code 字符串)
     std::vector<uint8_t> codeSec;
     auto emitJump = [&](uint32_t oldOff){ uint32_t n = oldToNew.count(oldOff)? oldToNew[oldOff] : oldOff; wrU32(codeSec, startCode + n); };
-    // 返回地址 = 其 CALL 自身位置+3。retTarget 存【CALL 自身的 codeOff】(往 CALL 之后插入不移动 CALL,
-    // 故 oldToNew[CALL.codeOff] 不变→返回地址正确指向 CALL 之后的新内容)。绑定到各自 CALL,嵌套也对。
     for (uint32_t oi=0; oi<order.size(); ++oi) for (auto& in : sc.funcs[order[oi]].code){
         wrU8(codeSec, in.op);
         switch (in.op){
@@ -289,7 +264,7 @@ std::vector<uint8_t> assemble(const Script& sc){
                 uint32_t v;
                 if (in.isRetAddr){
                     uint32_t n = oldToNew.count(in.retTarget) ? oldToNew[in.retTarget] : in.retTarget;
-                    v = (startCode + n + 3) & ADDR_MASK;   // CALL 新位置 + 3
+                    v = (startCode + n + 3) & ADDR_MASK;
                 } else {
                     v = in.push.isStr ? ((appendStr(in.push.str) & ADDR_MASK) | TAG_STR) : in.push.raw;
                 }
@@ -320,7 +295,6 @@ std::vector<uint8_t> assemble(const Script& sc){
         }
     }
 
-    // 非code区字符串:按聚集顺序各存独立副本(funcname -> varout -> varin -> structparam -> scriptvar)
     for (uint32_t i=0;i<nfunc;i++) nameOff[i] = appendStr(sc.funcs[i].name);
     for (auto& f: sc.funcs) for (auto& s: f.varout) if (s.isStr) slotOff[&s]=appendStr(s.str);
     for (auto& f: sc.funcs) for (auto& s: f.varin)  if (s.isStr) slotOff[&s]=appendStr(s.str);
@@ -329,12 +303,11 @@ std::vector<uint8_t> assemble(const Script& sc){
 
     auto slotU32 = [&](const Slot& sl)->uint32_t { return sl.isStr ? ((slotOff[&sl] & ADDR_MASK) | TAG_STR) : sl.raw; };
 
-    // 各区
     std::vector<uint8_t> funcHdr, varOutSec, varInSec, structsSec, paramsSec, scriptVarSec;
     uint32_t curVarOut=startVarOut, curVarIn=startVarIn, curStructs=startStructs, curParams=startStructParams;
     for (uint32_t i=0;i<nfunc;i++){
         const Func& f = sc.funcs[i];
-        wrU32(funcHdr, startCode + funcNewStart[i]);                       // code_addr
+        wrU32(funcHdr, startCode + funcNewStart[i]);
         uint32_t vars = (uint32_t)f.nin | ((uint32_t)f.b0<<8) | ((uint32_t)f.b1<<16) | ((uint32_t)f.nout<<24);
         wrU32(funcHdr, vars);
         wrU32(funcHdr, curVarOut);
@@ -342,7 +315,7 @@ std::vector<uint8_t> assemble(const Script& sc){
         wrU32(funcHdr, (uint32_t)f.structs.size());
         wrU32(funcHdr, curStructs);
         wrU32(funcHdr, f.crc);
-        wrU32(funcHdr, (nameOff[i] & ADDR_MASK) | TAG_STR);               // name ptr(独立副本)
+        wrU32(funcHdr, (nameOff[i] & ADDR_MASK) | TAG_STR);
         for (auto& s: f.varout){ wrU32(varOutSec, slotU32(s)); curVarOut+=4; }
         for (auto& s: f.varin ){ wrU32(varInSec , slotU32(s)); curVarIn +=4; }
         for (auto& st: f.structs){
@@ -356,7 +329,6 @@ std::vector<uint8_t> assemble(const Script& sc){
     }
     for (auto& s: sc.scriptVars) wrU32(scriptVarSec, slotU32(s));
 
-    // 拼接
     std::vector<uint8_t> out;
     out.insert(out.end(), {'#','s','c','p'});
     wrU32(out, startFuncHdr);
@@ -381,4 +353,4 @@ Layout computeLayout(const Script& sc){
     L.codeLen=codeLen; L.startStrings=L.startCode+codeLen; return L;
 }
 
-} // namespace ed9
+}

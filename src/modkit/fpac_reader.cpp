@@ -5,8 +5,6 @@
 
 namespace ed9loader {
 namespace modkit {
-
-// host 是 x64 Windows(LE),直接 memcpy
 static uint32_t rd_u32(const uint8_t* p) { uint32_t v; std::memcpy(&v, p, 4); return v; }
 static uint64_t rd_u64(const uint8_t* p) { uint64_t v; std::memcpy(&v, p, 8); return v; }
 
@@ -21,7 +19,6 @@ bool FpacReader::Open(const std::wstring& pacPath) {
     if (!f) return false;
     if (std::memcmp(hdr, "FPAC", 4) != 0) return false;
     const uint32_t count = rd_u32(hdr + 4);
-    // hdr+8 header_size, hdr+12 unk(未用)
 
     std::vector<uint8_t> table(static_cast<size_t>(count) * 32);
     f.read(reinterpret_cast<char*>(table.data()), static_cast<std::streamsize>(table.size()));
@@ -35,7 +32,6 @@ bool FpacReader::Open(const std::wstring& pacPath) {
         const uint64_t name_off = rd_u64(e + 8);
         en.size = rd_u64(e + 16);
         en.location = rd_u64(e + 24);
-        // 读 name(null 结尾)
         f.clear();
         f.seekg(static_cast<std::streamoff>(name_off));
         std::string nm;
@@ -67,5 +63,5 @@ bool FpacReader::ReadEntry(const std::string& name, std::vector<uint8_t>& out) c
     return true;
 }
 
-} // namespace modkit
-} // namespace ed9loader
+}
+}

@@ -1,12 +1,3 @@
-// ED9Loader 资源重定向插件(hook FileStream::Open 自接管,构造 MemoryStream)。
-// 复刻引擎缓存命中路径(FUN_1405264e0 内):
-//   ms = engine_alloc(0x30); ms[0]=MemoryStream::vftable; ms[+0x10]=size; ms[+0x18]=data;
-//   this[+0x20]=0(资源); this[+0x28]=ms(流); return MemoryStream::Open(ms,"",flags,0);
-// data/ms 都用引擎分配器(匹配 close 时的 free)。原 scene.pac / pac 流程零改动。
-// mod 文件: <游戏目录>/ED9Loader/redirect/<pac相对名>   例: redirect/scene/mp4000_sys.json
-// 关键 RVA(ImageBase 0x140000000):
-//   FileStream::Open 0x5264e0  MemoryStream::vftable 0x9daa20
-//   engine_alloc 0x4a5050      MemoryManager 单例ptr 0xad4f10
 #include "ed9loader_api.h"
 
 #include <Windows.h>
@@ -27,9 +18,6 @@ typedef uint64_t (__fastcall* FindFile_t)(void* mgr, const char* name, uint64_t*
 static Open_t o_Open = nullptr;
 static FindFile_t o_FindFile = nullptr;
 
-// 当前游戏语言(""未知,"sc"/"tc"/"kr")。从引擎语言替换后的查找键嗅探(见 hk_FindFile)。
-// 多语言 tbl:引擎对 Open 传语言无关的 table/X.tbl,真正的语言映射 table/→table_<lang>/ 发生在 Open 内部/
-// FindFile 层(我们 Open hook 之后)。所以观察 FindFile 拿到的键即可得知当前语言,无需逆向语言全局。
 static char g_lang[8] = {};
 
 static void detect_lang(const char* name) {
@@ -43,20 +31,38 @@ static void detect_lang(const char* name) {
     }
 }
 
-static uint64_t __fastcall hk_FindFile(void* mgr, const char* name, uint64_t* off, uint64_t* sz) {
-    detect_lang(name);                 // 只读嗅探,行为不变(passthrough),避免返回 0 触发崩溃
-    return o_FindFile(mgr, name, off, sz);
+static char g_trace[64] = {};
+static wchar_t g_trace_path[MAX_PATH] = {};
+
+static void TraceReq(const char* tag, const char* name, const char* result) {
+    if (g_trace[0] == 0 || name == nullptr || strstr(name, g_trace) == nullptr) return;
+    char line[512];
+    const int n = _snprintf_s(line, sizeof(line), _TRUNCATE, "[%8u] %-8s %s%s\r\n",
+                              GetTickCount(), tag, name, result ? result : "");
+    const HANDLE f = CreateFileW(g_trace_path, FILE_APPEND_DATA, FILE_SHARE_READ,
+                                 nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (f == INVALID_HANDLE_VALUE) return;
+    DWORD w = 0;
+    WriteFile(f, line, (DWORD)n, &w, nullptr);
+    CloseHandle(f);
 }
 
-// 引擎分配器(匹配引擎 free)
+static uint64_t __fastcall hk_FindFile(void* mgr, const char* name, uint64_t* off, uint64_t* sz) {
+    detect_lang(name);
+    const uint64_t r = o_FindFile(mgr, name, off, sz);
+    TraceReq("FindFile", name, r ? "  -> 命中 pac" : "  -> pac 里没有");
+    return r;
+}
+
+static void*    g_ms_vftable   = nullptr;
+static void*    g_memmgr       = nullptr;
+static Alloc_t  g_engine_alloc = nullptr;
+
 static void* eng_alloc(size_t n) {
-    void** mmp = (void**)(g_base + 0xad4f10);
-    void* mm = *mmp;
-    if (mm) { Alloc_t a = (Alloc_t)(g_base + 0x4a5050); return a((char*)mm + 8, n); }
+    if (g_engine_alloc && g_memmgr) return g_engine_alloc((char*)g_memmgr + 8, n);
     return malloc(n);
 }
 
-// pac 相对名 -> redirect 散文件存在则读入引擎内存(返回 ptr,*out_size 填大小)
 static void* load_redirect(const char* relname, uint32_t* out_size) {
     std::wstring p = g_redirect_root;
     for (const char* c = relname; *c; ++c) p += (*c == '/') ? L'\\' : (wchar_t)*c;
@@ -73,36 +79,48 @@ static void* load_redirect(const char* relname, uint32_t* out_size) {
     return buf;
 }
 
+static const int kLogMax = 64;
+static char g_logged[kLogMax][160];
+static int  g_loggedN = 0;
+static void LogHit(const char* name, uint32_t sz) {
+    if (g_api == nullptr || g_api->log == nullptr || name == nullptr) return;
+    for (int i = 0; i < g_loggedN; ++i) if (strcmp(g_logged[i], name) == 0) return;
+    if (g_loggedN >= kLogMax) return;
+    strncpy_s(g_logged[g_loggedN++], name, _TRUNCATE);
+    char b[224];
+    _snprintf_s(b, sizeof(b), _TRUNCATE, "[SceneRedirect] 命中 %s (%u 字节)", name, sz);
+    g_api->log(b);
+}
+
 static void* __fastcall hk_Open(void* self, const char* name, unsigned p3, unsigned p4, unsigned short p5) {
+    TraceReq("Open", name, nullptr);
     if (name) {
         uint32_t sz = 0;
-        // 多语言:算两个候选 cache 名 —— 语言版(langLookup,g_lang 已知时)+ 语言中性(neuLookup)。
-        //   table/X.tbl        → 语言 table_<lang>/X.tbl   中性 table/X.tbl(=原名)
-        //   script/scena/X.dat → 语言 script_<lang>/X.dat  中性 script/X.dat(去掉引擎路径里的 scena 这层)
-        //   其它(scene/asset)→ 无语言版,中性=原名。先查语言版,再查中性。
         char langBuf[300], neuBuf[300];
         const char* langLookup = nullptr;
         const char* neuLookup = name;
         if (strncmp(name, "table/", 6) == 0) {
             if (g_lang[0]) { _snprintf_s(langBuf, sizeof(langBuf), _TRUNCATE, "table_%s/%s", g_lang, name + 6); langLookup = langBuf; }
         } else if (strncmp(name, "script/scena/", 13) == 0) {
-            const char* rest = name + 13;   // scena 下的文件名,如 "Test_point.dat"
-            _snprintf_s(neuBuf, sizeof(neuBuf), _TRUNCATE, "script/%s", rest); neuLookup = neuBuf;       // 去 scena
+            const char* rest = name + 13;
+            _snprintf_s(neuBuf, sizeof(neuBuf), _TRUNCATE, "script/%s", rest); neuLookup = neuBuf;
             if (g_lang[0]) { _snprintf_s(langBuf, sizeof(langBuf), _TRUNCATE, "script_%s/%s", g_lang, rest); langLookup = langBuf; }
         }
         void* buf = nullptr;
+        const char* hitName = langLookup;
         if (langLookup) { buf = load_redirect(langLookup, &sz); }
-        if (!buf)       { buf = load_redirect(neuLookup,  &sz); }   // 回退语言中性
+        if (!buf)       { buf = load_redirect(neuLookup,  &sz); hitName = neuLookup; }
         if (buf) {
+            LogHit(hitName, sz);
             char* ms = (char*)eng_alloc(0x30);
             memset(ms, 0, 0x30);
-            *(void**)(ms + 0x00) = (void*)(g_base + 0x9daa20);  // MemoryStream::vftable
-            *(uint64_t*)(ms + 0x10) = sz;                       // size
-            *(void**)(ms + 0x18) = buf;                         // data
-            *(void**)((char*)self + 0x20) = nullptr;            // 资源对象(close 不碰,因不设 +0x50 bit0)
-            *(void**)((char*)self + 0x28) = ms;                 // 流
-            void* vftbl = *(void**)ms;                                   // = MemoryStream::vftable
-            MsOpen_t msopen = (MsOpen_t)(*(void**)((char*)vftbl + 0x28)); // *(vftable+0x28)
+            *(void**)(ms + 0x00) = g_ms_vftable;
+            *(uint64_t*)(ms + 0x10) = sz;
+            *(void**)(ms + 0x18) = buf;
+            *(void**)((char*)self + 0x20) = nullptr;
+            *(void**)((char*)self + 0x28) = ms;
+            void* vftbl = *(void**)ms;
+            MsOpen_t msopen = (MsOpen_t)(*(void**)((char*)vftbl + 0x28));
             return msopen(ms, "", p3, 0);
         }
     }
@@ -120,8 +138,49 @@ extern "C" __declspec(dllexport) void Plugin_Load(const Ed9Api* api) {
     GetModuleFileNameW(nullptr, exe, MAX_PATH);
     wchar_t* sl = wcsrchr(exe, L'\\'); if (sl) *sl = 0;
     g_redirect_root = std::wstring(exe) + L"\\ED9Loader\\cache\\merged\\";
-    api->install_hook((void*)(g_base + 0x5264e0), (void*)hk_Open, (void**)&o_Open);
-    api->install_hook((void*)(g_base + 0x48b7b0), (void*)hk_FindFile, (void**)&o_FindFile);  // 只读嗅探语言
+
+    {
+        wchar_t ini[MAX_PATH];
+        _snwprintf_s(ini, MAX_PATH, _TRUNCATE, L"%s\\ED9Loader\\config\\SceneRedirect.ini", exe);
+        wchar_t wtrace[64] = {};
+        GetPrivateProfileStringW(L"Settings", L"trace", L"", wtrace, 64, ini);
+        WideCharToMultiByte(CP_UTF8, 0, wtrace, -1, g_trace, sizeof(g_trace), nullptr, nullptr);
+        if (g_trace[0] != 0) {
+            _snwprintf_s(g_trace_path, MAX_PATH, _TRUNCATE,
+                         L"%s\\ED9Loader\\console_logs\\resource_trace.log", exe);
+            char b[192];
+            _snprintf_s(b, sizeof(b), _TRUNCATE,
+                        "[SceneRedirect] 资源请求跟踪已开启(过滤子串 \"%s\")"
+                        " -> console_logs\\resource_trace.log", g_trace);
+            api->log(b);
+        }
+    }
+
+    if (api->abi_version < 7 || api->resolve_symbol == nullptr) {
+        api->log("[SceneRedirect] 需要 ED9Loader ABI v7(符号表),已禁用");
+        return;
+    }
+    g_ms_vftable = (api->find_vtable != nullptr) ? api->find_vtable("MemoryStream@fdk") : nullptr;
+    void* mm_vt  = (api->find_vtable != nullptr) ? api->find_vtable("MemoryManager@fdk") : nullptr;
+    g_memmgr     = (mm_vt != nullptr && api->find_instance != nullptr) ? api->find_instance(mm_vt) : nullptr;
+    void* open     = api->resolve_symbol("FileStream_Open");
+    void* findfile = api->resolve_symbol("FindFile");
+    g_engine_alloc = (Alloc_t)api->resolve_symbol("engine_alloc");
+
+    if (g_ms_vftable == nullptr || g_memmgr == nullptr || open == nullptr ||
+        findfile == nullptr || g_engine_alloc == nullptr) {
+        char b[256];
+        _snprintf_s(b, sizeof(b), _TRUNCATE,
+                    "[SceneRedirect] 符号解析不全,已禁用(vft=%d memmgr=%d open=%d findfile=%d alloc=%d)"
+                    " —— 游戏更新过?请在管理器里重新锚定。",
+                    g_ms_vftable != nullptr, g_memmgr != nullptr, open != nullptr,
+                    findfile != nullptr, g_engine_alloc != nullptr);
+        api->log(b);
+        return;
+    }
+    api->install_hook(open,     (void*)hk_Open,     (void**)&o_Open);
+    api->install_hook(findfile, (void*)hk_FindFile, (void**)&o_FindFile);
+    api->log("[SceneRedirect] 已按当前游戏版本自适应装载");
 }
 
 BOOL WINAPI DllMain(HINSTANCE, DWORD, LPVOID) { return TRUE; }

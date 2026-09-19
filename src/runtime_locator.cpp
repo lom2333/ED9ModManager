@@ -35,7 +35,6 @@ struct ImageLayout {
     }
 };
 
-// MSVC RTTI x64 Complete Object Locator(字段为 image-relative RVA)。
 struct CompleteObjectLocator64 {
     std::uint32_t signature;
     std::uint32_t offset;
@@ -249,7 +248,7 @@ std::optional<ImageLayout> g_image;
     return 0;
 }
 
-}  // namespace
+}
 
 std::uintptr_t FindVtableByType(std::string_view fragment) {
     const auto image = GetImageLayout();
@@ -257,11 +256,11 @@ std::uintptr_t FindVtableByType(std::string_view fragment) {
         return 0;
     }
     const auto vtables = FindVtablesByTypeName(image, fragment);
-    return vtables.empty() ? 0 : vtables.front().address;  // exact 优先(已排序)
+    return vtables.empty() ? 0 : vtables.front().address;
 }
 
 std::uintptr_t FindInstanceByVtable(std::uintptr_t vtable_va) {
     return FindInstance(vtable_va);
 }
 
-}  // namespace sora_console::runtime_locator
+}

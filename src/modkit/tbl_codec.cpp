@@ -12,7 +12,6 @@ static uint32_t rd_u32(const std::vector<uint8_t>& d, size_t o) { uint32_t v; st
 static uint64_t rd_u64(const std::vector<uint8_t>& d, size_t o) { uint64_t v; std::memcpy(&v, d.data() + o, 8); return v; }
 static uint16_t rd_u16(const std::vector<uint8_t>& d, size_t o) { uint16_t v; std::memcpy(&v, d.data() + o, 2); return v; }
 
-// 标准 CRC32(zlib 兼容)
 static uint32_t crc32_std(const std::string& s) {
     uint32_t crc = 0xFFFFFFFFu;
     for (unsigned char c : s) {
@@ -21,7 +20,6 @@ static uint32_t crc32_std(const std::string& s) {
     }
     return crc ^ 0xFFFFFFFFu;
 }
-// 头 crc32 = zlib.crc32(name) ^ 0xFFFFFFFF
 static uint32_t header_crc(const std::string& name) { return crc32_std(name) ^ 0xFFFFFFFFu; }
 
 static std::string cstr_at(const std::vector<uint8_t>& d, uint64_t off) {
@@ -67,24 +65,21 @@ bool TblCodec::DecodeLookPoint(const std::vector<uint8_t>& d, std::vector<LpRow>
 
 std::vector<uint8_t> TblCodec::EncodeLookPoint(const std::vector<LpRow>& rows) {
     const uint32_t count = (uint32_t)rows.size();
-    const uint32_t start = 8 + 80 * 1;                 // 单 header
+    const uint32_t start = 8 + 80 * 1;
     const size_t fixedSize = (size_t)LP_ROW_LEN * count;
-    const size_t base = start + fixedSize;             // 池起点(extra_offset 初值)
+    const size_t base = start + fixedSize;
 
     std::vector<uint8_t> out;
     auto pushU32 = [&](std::vector<uint8_t>& v, uint32_t x) { uint8_t b[4]; std::memcpy(b, &x, 4); v.insert(v.end(), b, b + 4); };
-    // 文件头
     out.insert(out.end(), { '#', 'T', 'B', 'L' });
     pushU32(out, 1);
-    // header 项(80B)
     std::string name = LP_HEADER;
     out.insert(out.end(), name.begin(), name.end());
-    out.insert(out.end(), 64 - name.size(), 0);        // name 补齐到 64
+    out.insert(out.end(), 64 - name.size(), 0);
     pushU32(out, header_crc(name));
     pushU32(out, start);
     pushU32(out, LP_ROW_LEN);
     pushU32(out, count);
-    // out.size()==88 == start
 
     std::vector<uint8_t> fixed(fixedSize, 0);
     std::vector<uint8_t> pool;
@@ -95,10 +90,10 @@ std::vector<uint8_t> TblCodec::EncodeLookPoint(const std::vector<LpRow>& rows) {
     auto emitToffset = [&](const std::string& s) {
         putU64f(poolAbs());
         pool.insert(pool.end(), s.begin(), s.end());
-        pool.push_back(0);                              // 含空串也写 \0(与 Python 一致)
+        pool.push_back(0);
     };
     auto emitU16arr = [&](const std::vector<uint16_t>& a) {
-        if (poolAbs() % 2) pool.push_back(0);           // 2 字节对齐
+        if (poolAbs() % 2) pool.push_back(0);
         putU64f(poolAbs());
         putU32f((uint32_t)a.size());
         for (uint16_t x : a) { pool.push_back((uint8_t)(x & 0xFF)); pool.push_back((uint8_t)(x >> 8)); }
@@ -112,5 +107,5 @@ std::vector<uint8_t> TblCodec::EncodeLookPoint(const std::vector<LpRow>& rows) {
     return out;
 }
 
-} // namespace modkit
-} // namespace ed9loader
+}
+}

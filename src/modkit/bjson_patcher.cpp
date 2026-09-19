@@ -13,7 +13,6 @@ static void push_u32(std::vector<uint8_t>& d, uint32_t v) { uint8_t b[4]; std::m
 
 BjsonPatcher::BjsonPatcher(BjsonDecoder& dec) : dec_(dec) { data_ = dec_.Data(); }
 
-// ---- 值渲染(clean 模式,复刻 _render_node_value)----
 nlohmann::json BjsonPatcher::RenderValue(uint32_t offset) {
     const BjNode& n = dec_.ParseNode(offset);
     switch (n.kind) {
@@ -52,10 +51,9 @@ nlohmann::json BjsonPatcher::RenderValue(uint32_t offset) {
     }
 }
 
-// ---- signature / similarity(复刻 Python)----
 static std::string typeStr(const json& v) {
     if (v.contains("type") && v["type"].is_string()) return v["type"].get<std::string>();
-    return "None"; // type 缺失 → Python None 渲染为 "None"
+    return "None";
 }
 static std::string signature(const json& v) {
     if (v.is_object()) {
@@ -64,7 +62,7 @@ static std::string signature(const json& v) {
         if (v.contains("id"))
             return "id:" + typeStr(v) + ":" + v["id"].dump();
     }
-    return v.dump(); // 紧凑 + 排序键,等价 json.dumps(sort_keys,separators,ensure_ascii=False)
+    return v.dump();
 }
 static int similarityScore(const json& a, const json& b) {
     if (a.type() != b.type()) return -1000;
@@ -72,7 +70,6 @@ static int similarityScore(const json& a, const json& b) {
         int score = 0;
         json at = a.contains("type") ? a["type"] : json(), bt = b.contains("type") ? b["type"] : json();
         if (at == bt) score += 10;
-        // key set 相等
         std::vector<std::string> ka, kb;
         for (auto it = a.begin(); it != a.end(); ++it) ka.push_back(it.key());
         for (auto it = b.begin(); it != b.end(); ++it) kb.push_back(it.key());
@@ -138,7 +135,6 @@ uint32_t BjsonPatcher::patchSubtree(uint32_t prototypeOffset, const json& orig, 
     }
     if (kind == BJ_OBJECT || kind == BJ_COMPOUND) {
         std::vector<uint32_t> newOffsets; bool changed = false;
-        // 检测重复子名(首版不支持)
         for (uint32_t childOff : node.children) {
             const BjNode& c = dec_.ParseNode(childOff);
             const std::string& key = c.name;
@@ -167,17 +163,14 @@ std::vector<uint32_t> BjsonPatcher::patchArrayChildren(const std::vector<uint32_
     for (size_t i = 0; i < N; ++i) os[i] = signature(origVals[i]);
     for (size_t j = 0; j < M; ++j) es[j] = signature(editVals[j]);
 
-    // 简化但对"等长逐元素修改 / 末尾追加"等价于 difflib 的匹配:公共前缀 + 公共后缀 + 中段
     size_t P = 0; while (P < N && P < M && os[P] == es[P]) ++P;
     size_t S = 0; while (S < N - P && S < M - P && os[N - 1 - S] == es[M - 1 - S]) ++S;
 
     std::vector<uint32_t> result;
-    // equal 前缀
     for (size_t i = 0; i < P; ++i)
         result.push_back(patchSubtree(origOffsets[i], origVals[i], editVals[i]));
-    // 中段
     const size_t mo1 = P, mo2 = N - S, me1 = P, me2 = M - S;
-    if (mo1 < mo2 && me1 < me2) {           // replace
+    if (mo1 < mo2 && me1 < me2) {
         const size_t overlap = std::min(mo2 - mo1, me2 - me1);
         for (size_t k = 0; k < overlap; ++k)
             result.push_back(patchSubtree(origOffsets[mo1 + k], origVals[mo1 + k], editVals[me1 + k]));
@@ -186,12 +179,10 @@ std::vector<uint32_t> BjsonPatcher::patchArrayChildren(const std::vector<uint32_
             for (size_t e = me1 + overlap; e < me2; ++e)
                 result.push_back(insertFromPrototype(origOffsets, origVals, editVals[e], insertAt));
         }
-        // origMid 多出的部分 → delete(跳过)
-    } else if (me1 < me2) {                 // insert(origMid 空)
+    } else if (me1 < me2) {
         for (size_t e = me1; e < me2; ++e)
             result.push_back(insertFromPrototype(origOffsets, origVals, editVals[e], mo1));
-    } // else delete-only(editMid 空)→ 跳过
-    // equal 后缀
+    }
     for (size_t k = 0; k < S; ++k)
         result.push_back(patchSubtree(origOffsets[N - S + k], origVals[N - S + k], editVals[M - S + k]));
     return result;
@@ -224,5 +215,5 @@ bool BjsonPatcher::PatchRoot(const std::string& rootName, const json& editedValu
     return true;
 }
 
-} // namespace modkit
-} // namespace ed9loader
+}
+}

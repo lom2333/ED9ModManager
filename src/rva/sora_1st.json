@@ -1,0 +1,53 @@
+{
+ "schema": 1,
+ "exe": {
+  "name": "sora_1st.exe",
+  "size": 11847168,
+  "timestamp": 1783635722,
+  "sha1_head": "24b0d4f124738320"
+ },
+ "ref_exe": {
+  "name": "sora_1st.exe",
+  "size": 11847168,
+  "timestamp": 1783635722,
+  "sha1_head": "24b0d4f124738320"
+ },
+ "reflect_only": {
+  "MemoryStream_vftable": "find_vtable(\"MemoryStream@fdk\")",
+  "MemoryManager": "find_vtable(\"MemoryManager@fdk\") + find_instance"
+ },
+ "symbols": {
+  "FileStream_Open": {
+   "rva": 5423680,
+   "confidence": "reference"
+  },
+  "FindFile": {
+   "rva": 4787552,
+   "confidence": "reference"
+  },
+  "engine_alloc": {
+   "rva": 4892240,
+   "confidence": "reference"
+  },
+  "LoadScript": {
+   "rva": 2404016,
+   "confidence": "reference"
+  },
+  "MonsLoad": {
+   "rva": 2090416,
+   "confidence": "reference"
+  },
+  "AreaProc": {
+   "rva": 702768,
+   "confidence": "reference"
+  },
+  "AreaRegister": {
+   "rva": 2434688,
+   "confidence": "reference"
+  },
+  "SpawnEvent": {
+   "rva": 2404256,
+   "confidence": "reference"
+  }
+ }
+}

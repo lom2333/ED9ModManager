@@ -137,6 +137,18 @@
    "lottery_group": "ushort",
    "se_ref": "ulong",
    "vfx_ref": "ulong"
+  },
+  "64": {
+   "map_name": "toffset",
+   "object_name": "toffset",
+   "break_effect_ref": "ulong",
+   "drop_table_ref": "ulong",
+   "drop_flags": "uint",
+   "durability": "ushort",
+   "lottery_group": "ushort",
+   "NEW7_0": "toffset",
+   "se_ref": "ulong",
+   "vfx_ref": "ulong"
   }
  },
  "WeedingTableData": {
@@ -237,6 +249,17 @@
    "hp_or_unknown_multi_2": "uint",
    "enemy_spd_multiplier": "uint",
    "int1": "uint"
+  },
+  "40": {
+   "difficulty_id": "uint",
+   "player_damage_multiplier": "uint",
+   "enemy_damage_multiplier": "uint",
+   "hp_or_unknown_multi_1": "uint",
+   "hp_or_unknown_multi_2": "uint",
+   "enemy_spd_multiplier": "uint",
+   "int1": "uint",
+   "NEW7_0": "ulong",
+   "NEW7_1": "uint"
   }
  },
  "BattleEnemyLevelStatusAdjust": {
@@ -315,6 +338,26 @@
    "loading_scale": "float",
    "special_value": "ushort",
    "reserved_3E": "ushort"
+  },
+  "56": {
+   "chr_id": "uint",
+   "scale_x": "float",
+   "scale_y": "float",
+   "camera_distance": "float",
+   "float_10": "float",
+   "float_14": "float",
+   "face_scale": "float",
+   "face_distance": "float",
+   "popup_offset_x": "float",
+   "popup_offset_y": "float",
+   "byte_28": "ubyte",
+   "byte_29": "ubyte",
+   "byte_2A": "ubyte",
+   "byte_2B": "ubyte",
+   "portrait_id": "uint",
+   "loading_scale": "float",
+   "special_value": "ushort",
+   "reserved_3E": "ushort"
   }
  },
  "TalkChrData": {
@@ -333,6 +376,17 @@
    "variant_ref": "ulong",
    "offset_x": "float",
    "offset_y": "float",
+   "offset_z": "float",
+   "scale": "float"
+  },
+  "48": {
+   "portrait_id": "uint",
+   "flags": "uint",
+   "base_chr_code": "toffset",
+   "variant_ref": "ulong",
+   "offset_x": "float",
+   "offset_y": "float",
+   "NEW6_0": "ulong",
    "offset_z": "float",
    "scale": "float"
   }
@@ -895,6 +949,13 @@
    "id": "uint",
    "desc": "toffset",
    "long": "long"
+  },
+  "32": {
+   "uint": "uint",
+   "id": "uint",
+   "desc": "toffset",
+   "long": "long",
+   "NEW4_0": "toffset"
   }
  },
  "BlackJackMedal": {
@@ -999,6 +1060,61 @@
    "ulong17": "ulong",
    "ulong18": "ulong",
    "desc": "toffset"
+  },
+  "224": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "array_8": "u8array",
+   "uint_14": "uint",
+   "uint_18": "uint",
+   "uint_1C": "uint",
+   "uint_20": "uint",
+   "uint_24": "uint",
+   "uint_28": "uint",
+   "uint_2C": "uint",
+   "uint_30": "uint",
+   "uint_34": "uint",
+   "uint_38": "uint",
+   "uint_3C": "uint",
+   "uint_40": "uint",
+   "uint_44": "uint",
+   "uint_48": "uint",
+   "uint_4C": "uint",
+   "uint_50": "uint",
+   "uint_54": "uint",
+   "uint_58": "uint",
+   "uint_5C": "uint",
+   "uint_60": "uint",
+   "uint_64": "uint",
+   "uint_68": "uint",
+   "uint_6C": "uint",
+   "uint_70": "uint",
+   "uint_74": "uint",
+   "uint_78": "uint",
+   "uint_7C": "uint",
+   "uint_80": "uint",
+   "uint_84": "uint",
+   "uint_88": "uint",
+   "uint_8C": "uint",
+   "uint_90": "uint",
+   "uint_94": "uint",
+   "float_98": "float",
+   "uint_9C": "uint",
+   "float_A0": "float",
+   "float_A4": "float",
+   "uint_A8": "uint",
+   "uint_AC": "uint",
+   "uint_B0": "uint",
+   "uint_B4": "uint",
+   "float_B8": "float",
+   "uint_BC": "uint",
+   "float_C0": "float",
+   "float_C4": "float",
+   "float_C8": "float",
+   "uint_CC": "uint",
+   "text_D0": "toffset",
+   "uint_D8": "uint",
+   "uint_DC": "uint"
   }
  },
  "FishingConstant": {
@@ -1006,12 +1122,68 @@
    "ulong1": "ulong",
    "ulong2": "ulong",
    "ulong3": "ulong"
+  },
+  "96": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "uint_8": "uint",
+   "uint_C": "uint",
+   "uint_10": "uint",
+   "uint_14": "uint",
+   "float_18": "float",
+   "uint_1C": "uint",
+   "uint_20": "uint",
+   "uint_24": "uint",
+   "uint_28": "uint",
+   "uint_2C": "uint",
+   "uint_30": "uint",
+   "uint_34": "uint",
+   "uint_38": "uint",
+   "uint_3C": "uint",
+   "float_40": "float",
+   "uint_44": "uint",
+   "uint_48": "uint",
+   "uint_4C": "uint",
+   "uint_50": "uint",
+   "uint_54": "uint",
+   "text_58": "toffset"
   }
  },
  "FishingBaitInfo": {
   "8": {
    "uint1": "uint",
    "uint2": "uint"
+  },
+  "116": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "uint_8": "uint",
+   "uint_C": "uint",
+   "uint_10": "uint",
+   "uint_14": "uint",
+   "uint_18": "uint",
+   "uint_1C": "uint",
+   "uint_20": "uint",
+   "uint_24": "uint",
+   "uint_28": "uint",
+   "uint_2C": "uint",
+   "uint_30": "uint",
+   "uint_34": "uint",
+   "uint_38": "uint",
+   "uint_3C": "uint",
+   "uint_40": "uint",
+   "uint_44": "uint",
+   "uint_48": "uint",
+   "uint_4C": "uint",
+   "uint_50": "uint",
+   "uint_54": "uint",
+   "uint_58": "uint",
+   "uint_5C": "uint",
+   "uint_60": "uint",
+   "uint_64": "uint",
+   "uint_68": "uint",
+   "uint_6C": "uint",
+   "uint_70": "uint"
   }
  },
  "FishingCastInfo": {
@@ -1028,6 +1200,13 @@
    "id": "uint",
    "desc": "toffset",
    "empty": "long"
+  },
+  "32": {
+   "uint1": "uint",
+   "id": "uint",
+   "desc": "toffset",
+   "empty": "long",
+   "NEW4_0": "toffset"
   }
  },
  "PokerMedal": {
@@ -1085,6 +1264,34 @@
    "long5": "ulong",
    "long6": "ulong",
    "stringA": "toffset"
+  },
+  "176": {
+   "string1": "toffset",
+   "id": "ulong",
+   "array1": "u32array",
+   "btl_name": "uint",
+   "tag": "toffset",
+   "long2": "ulong",
+   "array2": "u16array",
+   "empty2": "uint",
+   "array3": "u16array",
+   "empty3": "uint",
+   "battle": "toffset",
+   "int1": "uint",
+   "float1": "float",
+   "float2": "float",
+   "float3": "float",
+   "float4": "float",
+   "unknown1": "uint",
+   "unknown2": "uint",
+   "unknown3": "uint",
+   "string7": "toffset",
+   "move_type": "toffset",
+   "string9": "toffset",
+   "array_90": "u32array",
+   "uint_9C": "uint",
+   "long6": "ulong",
+   "stringA": "toffset"
   }
  },
  "NameTableData": {
@@ -1127,6 +1334,9 @@
   "16": {
    "name": "toffset",
    "value": "long"
+  },
+  "8": {
+   "value": "long"
   }
  },
  "NoteBattleCategory": {
@@ -1160,11 +1370,28 @@
    "region": "long",
    "code": "toffset",
    "desc": "toffset"
+  },
+  "48": {
+   "ref_name": "toffset",
+   "int1": "uint",
+   "int2": "uint",
+   "NEW3_0": "ulong",
+   "region": "long",
+   "code": "toffset",
+   "desc": "toffset"
   }
  },
  "NoteCookChara": {
   "2": {
    "id": "short"
+  },
+  "24": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "uint_8": "uint",
+   "uint_C": "uint",
+   "uint_10": "uint",
+   "uint_14": "uint"
   }
  },
  "NoteCookItem": {
@@ -1269,6 +1496,24 @@
    "space_value": "ushort",
    "mirage_value": "ushort",
    "reserved_1A": "ushort"
+  },
+  "64": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "uint_8": "uint",
+   "uint_C": "uint",
+   "uint_10": "uint",
+   "uint_14": "uint",
+   "uint_18": "uint",
+   "uint_1C": "uint",
+   "uint_20": "uint",
+   "uint_24": "uint",
+   "uint_28": "uint",
+   "uint_2C": "uint",
+   "uint_30": "uint",
+   "uint_34": "uint",
+   "uint_38": "uint",
+   "uint_3C": "uint"
   }
  },
  "QuartzParam": {
@@ -1438,6 +1683,17 @@
    "quest_description": "toffset",
    "long1": "long",
    "unk_txt": "toffset"
+  },
+  "56": {
+   "quest_id": "ushort",
+   "txt_id": "int",
+   "empty1": "short",
+   "quest_description": "toffset",
+   "long1": "long",
+   "NEW5_0": "ulong",
+   "NEW5_1": "ulong",
+   "NEW5_2": "ulong",
+   "unk_txt": "toffset"
   }
  },
  "NaviText": {
@@ -1594,6 +1850,21 @@
    "empty1": "int",
    "float5": "float",
    "empty2": "long"
+  },
+  "72": {
+   "chr_id": "int",
+   "int1": "int",
+   "NEW2_0": "toffset",
+   "animation": "toffset",
+   "text1": "toffset",
+   "float1": "float",
+   "float2": "float",
+   "float3": "float",
+   "float4": "float",
+   "code": "toffset",
+   "empty1": "int",
+   "float5": "float",
+   "empty2": "long"
   }
  },
  "SkillPowerIcon": {
@@ -1627,6 +1898,125 @@
    "float1": "float",
    "float2": "float",
    "float3": "float",
+   "float4": "float",
+   "float5": "float",
+   "float6": "float",
+   "float7": "float",
+   "float8": "float",
+   "float9": "float",
+   "float10": "float",
+   "float11": "float",
+   "float12": "float",
+   "float13": "float",
+   "float14": "float",
+   "float15": "float",
+   "float16": "float",
+   "float17": "float",
+   "code2": "toffset",
+   "int2": "uint",
+   "int3": "uint",
+   "int4": "uint",
+   "float23": "float",
+   "float24": "float",
+   "float25": "float",
+   "float26": "float",
+   "float27": "float",
+   "short3": "ushort",
+   "short4": "ushort",
+   "short5": "ushort",
+   "short6": "ushort",
+   "float28": "float",
+   "float29": "float",
+   "int5": "uint",
+   "float30": "float",
+   "float31": "float",
+   "float32": "float",
+   "level": "uint",
+   "exp_base": "uint",
+   "exp_growth": "float",
+   "hp_base": "uint",
+   "hp_growth": "float",
+   "ep_base": "uint",
+   "cp_base": "uint",
+   "cp_growth": "float",
+   "str_base": "uint",
+   "str_growth": "float",
+   "def_base": "uint",
+   "def_growth": "float",
+   "ats_base": "uint",
+   "ats_growth": "float",
+   "adf_base": "uint",
+   "adf_growth": "float",
+   "spd_base": "uint",
+   "spd_growth": "float",
+   "agl_base": "uint",
+   "agl_growth": "float",
+   "dex_base": "uint",
+   "dex_growth": "float",
+   "mov": "uint",
+   "rng": "uint",
+   "int6": "uint",
+   "int7": "uint",
+   "int8": "uint",
+   "int9": "uint",
+   "int10": "uint",
+   "int11": "uint",
+   "poison_efficacy": "ubyte",
+   "freeze_efficacy": "ubyte",
+   "petrify_efficacy": "ubyte",
+   "sleep_efficacy": "ubyte",
+   "burn_efficacy": "ubyte",
+   "seal_efficacy": "ubyte",
+   "mute_efficacy": "ubyte",
+   "blind_efficacy": "ubyte",
+   "confuse_efficacy": "ubyte",
+   "deathblow_efficacy": "ubyte",
+   "statdown_efficacy": "ubyte",
+   "stun_efficacy": "ubyte",
+   "delay_efficacy": "ushort",
+   "earth_efficacy": "ushort",
+   "water_efficacy": "ushort",
+   "fire_efficacy": "ushort",
+   "wind_efficacy": "ushort",
+   "time_efficacy": "ushort",
+   "space_efficacy": "ushort",
+   "mirage_efficacy": "ushort",
+   "earth_sepith": "ubyte",
+   "water_sepith": "ubyte",
+   "fire_sepith": "ubyte",
+   "wind_sepith": "ubyte",
+   "time_sepith": "ubyte",
+   "space_sepith": "ubyte",
+   "mirage_sepith": "ubyte",
+   "sepith_mass": "ubyte",
+   "long_for_ally": "long",
+   "item_drop_1": "uint",
+   "item_drop_1_min": "ubyte",
+   "item_drop_1_max": "ubyte",
+   "item_drop_1_rate": "ushort",
+   "item_drop_2": "uint",
+   "item_drop_2_min": "ubyte",
+   "item_drop_2_max": "ubyte",
+   "item_drop_2_rate": "ushort",
+   "empty": "uint",
+   "name": "toffset",
+   "description": "toffset"
+  },
+  "424": {
+   "ai_file": "toffset",
+   "code": "toffset",
+   "data": "ulong",
+   "file1": "toffset",
+   "file2": "toffset",
+   "file3": "toffset",
+   "file4": "toffset",
+   "unknown": "toffset",
+   "file5": "toffset",
+   "int1": "uint",
+   "float1": "float",
+   "float2": "float",
+   "float3": "float",
+   "NEW13_0": "ulong",
    "float4": "float",
    "float5": "float",
    "float6": "float",
@@ -1779,6 +2169,32 @@
    "title_ref": "ulong",
    "param_50": "uint",
    "param_54": "uint"
+  },
+  "120": {
+   "text_0": "toffset",
+   "text_8": "toffset",
+   "uint_10": "uint",
+   "uint_14": "uint",
+   "text_18": "toffset",
+   "text_20": "toffset",
+   "uint_28": "uint",
+   "uint_2C": "uint",
+   "array_30": "u16array",
+   "uint_3C": "uint",
+   "uint_40": "uint",
+   "uint_44": "uint",
+   "uint_48": "uint",
+   "uint_4C": "uint",
+   "uint_50": "uint",
+   "uint_54": "uint",
+   "uint_58": "uint",
+   "uint_5C": "uint",
+   "uint_60": "uint",
+   "uint_64": "uint",
+   "uint_68": "uint",
+   "uint_6C": "uint",
+   "uint_70": "uint",
+   "uint_74": "uint"
   }
  },
  "TextTableData": {
@@ -1885,6 +2301,67 @@
    "stat_mov": "uint",
    "max_quantity": "uint",
    "price": "uint",
+   "text_C0": "toffset",
+   "name": "toffset",
+   "desc": "toffset",
+   "uint_D8": "uint",
+   "uint_DC": "uint",
+   "uint_E0": "uint",
+   "uint_E4": "uint"
+  },
+  "256": {
+   "id": "uint",
+   "character_restriction": "uint",
+   "array_08": "u32array",
+   "empty_14": "uint",
+   "text_08": "toffset",
+   "text_10": "toffset",
+   "category": "ubyte",
+   "subcategory": "ubyte",
+   "item_icon": "ushort",
+   "effect_icon": "ushort",
+   "element": "ushort",
+   "flags": "uint",
+   "float_24": "float",
+   "float_28": "float",
+   "effect0_id": "uint",
+   "effect0_val": "uint",
+   "effect0_p1": "uint",
+   "effect0_p2": "uint",
+   "effect1_id": "uint",
+   "effect1_val": "uint",
+   "effect1_p1": "uint",
+   "effect1_p2": "uint",
+   "effect2_id": "uint",
+   "effect2_val": "uint",
+   "effect2_p1": "uint",
+   "effect2_p2": "uint",
+   "effect3_id": "uint",
+   "effect3_val": "uint",
+   "effect3_p1": "uint",
+   "effect3_p2": "uint",
+   "effect4_id": "uint",
+   "effect4_val": "uint",
+   "effect4_p1": "uint",
+   "effect4_p2": "uint",
+   "float_7C": "float",
+   "stat_hp": "uint",
+   "stat_ep": "uint",
+   "stat_str": "uint",
+   "stat_def": "uint",
+   "stat_ats": "uint",
+   "stat_adf": "uint",
+   "stat_x98": "uint",
+   "stat_x9C": "uint",
+   "stat_xA0": "uint",
+   "stat_xA4": "uint",
+   "stat_xA8": "uint",
+   "stat_xAC": "uint",
+   "stat_spd": "int",
+   "stat_mov": "uint",
+   "max_quantity": "uint",
+   "price": "uint",
+   "long_D0": "ulong",
    "text_C0": "toffset",
    "name": "toffset",
    "desc": "toffset",
@@ -2087,6 +2564,52 @@
    "uint_1AC": "uint",
    "uint_1B0": "uint",
    "uint_1B4": "uint"
+  },
+  "184": {
+   "text_0": "toffset",
+   "text_8": "toffset",
+   "uint_10": "uint",
+   "uint_14": "uint",
+   "uint_18": "uint",
+   "uint_1C": "uint",
+   "uint_20": "uint",
+   "uint_24": "uint",
+   "uint_28": "uint",
+   "uint_2C": "uint",
+   "uint_30": "uint",
+   "uint_34": "uint",
+   "uint_38": "uint",
+   "uint_3C": "uint",
+   "uint_40": "uint",
+   "uint_44": "uint",
+   "uint_48": "uint",
+   "uint_4C": "uint",
+   "uint_50": "uint",
+   "uint_54": "uint",
+   "uint_58": "uint",
+   "uint_5C": "uint",
+   "uint_60": "uint",
+   "uint_64": "uint",
+   "uint_68": "uint",
+   "uint_6C": "uint",
+   "uint_70": "uint",
+   "uint_74": "uint",
+   "uint_78": "uint",
+   "uint_7C": "uint",
+   "uint_80": "uint",
+   "uint_84": "uint",
+   "uint_88": "uint",
+   "uint_8C": "uint",
+   "uint_90": "uint",
+   "uint_94": "uint",
+   "uint_98": "uint",
+   "uint_9C": "uint",
+   "uint_A0": "uint",
+   "uint_A4": "uint",
+   "uint_A8": "uint",
+   "uint_AC": "uint",
+   "uint_B0": "uint",
+   "uint_B4": "uint"
   }
  },
  "NoteCookRecipe": {
@@ -2108,6 +2631,842 @@
    "ing7_num": "uint",
    "ing8_id": "uint",
    "ing8_num": "uint"
+  }
+ },
+ "BattleLevelEnemyAdjust": {
+  "32": {
+   "text_0": "toffset",
+   "uint_8": "uint",
+   "uint_C": "uint",
+   "uint_10": "uint",
+   "uint_14": "uint",
+   "uint_18": "uint",
+   "uint_1C": "uint"
+  }
+ },
+ "BlackJackInfo": {
+  "12": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "uint_8": "uint"
+  }
+ },
+ "BlackJackRollRate": {
+  "128": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "text_8": "toffset",
+   "text_10": "toffset",
+   "text_18": "toffset",
+   "uint_20": "uint",
+   "uint_24": "uint",
+   "uint_28": "uint",
+   "uint_2C": "uint",
+   "uint_30": "uint",
+   "uint_34": "uint",
+   "uint_38": "uint",
+   "uint_3C": "uint",
+   "uint_40": "uint",
+   "uint_44": "uint",
+   "uint_48": "uint",
+   "uint_4C": "uint",
+   "uint_50": "uint",
+   "uint_54": "uint",
+   "uint_58": "uint",
+   "uint_5C": "uint",
+   "uint_60": "uint",
+   "uint_64": "uint",
+   "uint_68": "uint",
+   "uint_6C": "uint",
+   "uint_70": "uint",
+   "uint_74": "uint",
+   "uint_78": "uint",
+   "uint_7C": "uint"
+  }
+ },
+ "BlackJackRuleText": {
+  "24": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "uint_8": "uint",
+   "uint_C": "uint",
+   "uint_10": "uint",
+   "uint_14": "uint"
+  }
+ },
+ "FishingRodInfo": {
+  "96": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "uint_8": "uint",
+   "uint_C": "uint",
+   "uint_10": "uint",
+   "uint_14": "uint",
+   "uint_18": "uint",
+   "uint_1C": "uint",
+   "uint_20": "uint",
+   "uint_24": "uint",
+   "uint_28": "uint",
+   "uint_2C": "uint",
+   "uint_30": "uint",
+   "uint_34": "uint",
+   "uint_38": "uint",
+   "uint_3C": "uint",
+   "uint_40": "uint",
+   "uint_44": "uint",
+   "uint_48": "uint",
+   "float_4C": "float",
+   "float_50": "float",
+   "float_54": "float",
+   "float_58": "float",
+   "float_5C": "float"
+  }
+ },
+ "LipSyncData": {
+  "32": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "text_8": "toffset",
+   "text_10": "toffset",
+   "text_18": "toffset"
+  }
+ },
+ "MapJumpChrIcon": {
+  "12": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "uint_8": "uint"
+  }
+ },
+ "MedalItem": {
+  "8": {
+   "uint_0": "uint",
+   "uint_4": "uint"
+  }
+ },
+ "NoteFishingCategory": {
+  "32": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "array_8": "u8array",
+   "uint_14": "uint",
+   "text_18": "toffset"
+  }
+ },
+ "NoteMainPartnerInfo": {
+  "24": {
+   "array_0": "u8array",
+   "uint_C": "uint",
+   "uint_10": "uint",
+   "uint_14": "uint"
+  }
+ },
+ "OutItemList": {
+  "64": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "uint_8": "uint",
+   "uint_C": "uint",
+   "uint_10": "uint",
+   "uint_14": "uint",
+   "uint_18": "uint",
+   "uint_1C": "uint",
+   "uint_20": "uint",
+   "uint_24": "uint",
+   "uint_28": "uint",
+   "uint_2C": "uint",
+   "uint_30": "uint",
+   "uint_34": "uint",
+   "uint_38": "uint",
+   "uint_3C": "uint"
+  }
+ },
+ "PokerInfo": {
+  "12": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "uint_8": "uint"
+  }
+ },
+ "PokerRollRate": {
+  "128": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "text_8": "toffset",
+   "text_10": "toffset",
+   "array_18": "u32array",
+   "uint_24": "uint",
+   "uint_28": "uint",
+   "uint_2C": "uint",
+   "uint_30": "uint",
+   "uint_34": "uint",
+   "uint_38": "uint",
+   "uint_3C": "uint",
+   "uint_40": "uint",
+   "uint_44": "uint",
+   "uint_48": "uint",
+   "uint_4C": "uint",
+   "uint_50": "uint",
+   "uint_54": "uint",
+   "uint_58": "uint",
+   "uint_5C": "uint",
+   "uint_60": "uint",
+   "uint_64": "uint",
+   "uint_68": "uint",
+   "uint_6C": "uint",
+   "uint_70": "uint",
+   "uint_74": "uint",
+   "uint_78": "uint",
+   "uint_7C": "uint"
+  }
+ },
+ "PokerRuleText": {
+  "24": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "uint_8": "uint",
+   "uint_C": "uint",
+   "uint_10": "uint",
+   "uint_14": "uint"
+  }
+ },
+ "QuestRankBefore": {
+  "16": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "text_8": "toffset"
+  }
+ },
+ "RouletteBetExplain": {
+  "16": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "text_8": "toffset"
+  }
+ },
+ "RouletteBetRate": {
+  "40": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "text_8": "toffset",
+   "array_10": "u32array",
+   "uint_1C": "uint",
+   "uint_20": "uint",
+   "uint_24": "uint"
+  }
+ },
+ "RouletteCheat": {
+  "24": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "uint_8": "uint",
+   "uint_C": "uint",
+   "uint_10": "uint",
+   "uint_14": "uint"
+  }
+ },
+ "RouletteInfo": {
+  "20": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "uint_8": "uint",
+   "uint_C": "uint",
+   "uint_10": "uint"
+  }
+ },
+ "RouletteMessage": {
+  "24": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "text_8": "toffset",
+   "uint_10": "uint",
+   "uint_14": "uint"
+  }
+ },
+ "RouletteNumber": {
+  "12": {
+   "uint_0": "uint",
+   "float_4": "float",
+   "float_8": "float"
+  }
+ },
+ "RouletteRuleText": {
+  "24": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "array_8": "u32array",
+   "uint_14": "uint"
+  }
+ },
+ "SlotBattleEvent": {
+  "8": {
+   "uint_0": "uint",
+   "uint_4": "uint"
+  }
+ },
+ "SlotBonus": {
+  "12": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "uint_8": "uint"
+  }
+ },
+ "SlotCheat": {
+  "12": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "uint_8": "uint"
+  }
+ },
+ "SlotEvent": {
+  "8": {
+   "uint_0": "uint",
+   "uint_4": "uint"
+  }
+ },
+ "SlotInfo": {
+  "8": {
+   "uint_0": "uint",
+   "uint_4": "uint"
+  }
+ },
+ "SlotMonsterInfo": {
+  "48": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "text_8": "toffset",
+   "uint_10": "uint",
+   "uint_14": "uint",
+   "uint_18": "uint",
+   "uint_1C": "uint",
+   "uint_20": "uint",
+   "uint_24": "uint",
+   "uint_28": "uint",
+   "uint_2C": "uint"
+  }
+ },
+ "SlotPomInfo": {
+  "32": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "array_8": "u32array",
+   "uint_14": "uint",
+   "uint_18": "uint",
+   "uint_1C": "uint"
+  }
+ },
+ "SlotReelPattern": {
+  "6": {
+   "uint_0": "uint",
+   "ushort_4": "ushort"
+  }
+ },
+ "SlotReelSpeed": {
+  "8": {
+   "uint_0": "uint",
+   "float_4": "float"
+  }
+ },
+ "SlotRoles": {
+  "12": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "uint_8": "uint"
+  }
+ },
+ "SlotTBoxEvent": {
+  "8": {
+   "uint_0": "uint",
+   "uint_4": "uint"
+  }
+ },
+ "SlotTBoxInfo": {
+  "52": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "uint_8": "uint",
+   "uint_C": "uint",
+   "uint_10": "uint",
+   "uint_14": "uint",
+   "uint_18": "uint",
+   "uint_1C": "uint",
+   "uint_20": "uint",
+   "uint_24": "uint",
+   "uint_28": "uint",
+   "uint_2C": "uint",
+   "uint_30": "uint"
+  }
+ },
+ "TalkTableData": {
+  "88": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "text_8": "toffset",
+   "uint_10": "uint",
+   "uint_14": "uint",
+   "uint_18": "uint",
+   "uint_1C": "uint",
+   "uint_20": "uint",
+   "uint_24": "uint",
+   "uint_28": "uint",
+   "uint_2C": "uint",
+   "uint_30": "uint",
+   "uint_34": "uint",
+   "uint_38": "uint",
+   "uint_3C": "uint",
+   "uint_40": "uint",
+   "uint_44": "uint",
+   "uint_48": "uint",
+   "uint_4C": "uint",
+   "uint_50": "uint",
+   "uint_54": "uint"
+  }
+ },
+ "ViewerMainList": {
+  "24": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "text_8": "toffset",
+   "uint_10": "uint",
+   "uint_14": "uint"
+  }
+ },
+ "ViewerSystemList": {
+  "16": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "text_8": "toffset"
+  }
+ },
+ "ViewerMapList": {
+  "16": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "text_8": "toffset"
+  }
+ },
+ "ViewerCharaSelectList": {
+  "24": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "text_8": "toffset",
+   "text_10": "toffset"
+  }
+ },
+ "ViewerCharaEquipList": {
+  "24": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "text_8": "toffset",
+   "uint_10": "uint",
+   "uint_14": "uint"
+  }
+ },
+ "ViewerShotList": {
+  "16": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "text_8": "toffset"
+  }
+ },
+ "ViewerMapData": {
+  "80": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "text_8": "toffset",
+   "text_10": "toffset",
+   "array_18": "u16array",
+   "uint_24": "uint",
+   "text_28": "toffset",
+   "uint_30": "uint",
+   "uint_34": "uint",
+   "text_38": "toffset",
+   "float_40": "float",
+   "float_44": "float",
+   "float_48": "float",
+   "uint_4C": "uint"
+  }
+ },
+ "ViewerEnvList": {
+  "16": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "text_8": "toffset"
+  }
+ },
+ "ViewerBGMList": {
+  "24": {
+   "int_0": "int",
+   "uint_4": "uint",
+   "text_8": "toffset",
+   "uint_10": "uint",
+   "uint_14": "uint"
+  }
+ },
+ "ViewerCharaList": {
+  "64": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "text_8": "toffset",
+   "text_10": "toffset",
+   "text_18": "toffset",
+   "uint_20": "uint",
+   "uint_24": "uint",
+   "text_28": "toffset",
+   "text_30": "toffset",
+   "float_38": "float",
+   "float_3C": "float"
+  }
+ },
+ "ViewerCostumeList": {
+  "32": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "text_8": "toffset",
+   "uint_10": "uint",
+   "uint_14": "uint",
+   "text_18": "toffset"
+  }
+ },
+ "ViewerAttachList": {
+  "32": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "text_8": "toffset",
+   "uint_10": "uint",
+   "uint_14": "uint",
+   "uint_18": "uint",
+   "uint_1C": "uint"
+  }
+ },
+ "ViewerHairList": {
+  "24": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "text_8": "toffset",
+   "uint_10": "uint",
+   "uint_14": "uint"
+  }
+ },
+ "ViewerWeaponList": {
+  "24": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "text_8": "toffset",
+   "uint_10": "uint",
+   "uint_14": "uint"
+  }
+ },
+ "ViewerFaceList": {
+  "48": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "text_8": "toffset",
+   "text_10": "toffset",
+   "text_18": "toffset",
+   "uint_20": "uint",
+   "uint_24": "uint",
+   "text_28": "toffset"
+  }
+ },
+ "ViewerMouseList": {
+  "24": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "text_8": "toffset",
+   "text_10": "toffset"
+  }
+ },
+ "ViewerCheekList": {
+  "24": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "text_8": "toffset",
+   "text_10": "toffset"
+  }
+ },
+ "ViewerEyeLineList": {
+  "24": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "text_8": "toffset",
+   "text_10": "toffset"
+  }
+ },
+ "ViewerNeckDirList": {
+  "24": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "text_8": "toffset",
+   "float_10": "float",
+   "float_14": "float"
+  }
+ },
+ "ViewerMotionList": {
+  "40": {
+   "uint_0": "uint",
+   "uint_4": "uint",
+   "text_8": "toffset",
+   "text_10": "toffset",
+   "text_18": "toffset",
+   "text_20": "toffset"
+  }
+ },
+ "__variants": {
+  "BattleLevelEnemyAdjust": {
+   "32": "sora_2nd"
+  },
+  "BattleLevelTurn": {
+   "28": "sora_1st",
+   "40": "sora_2nd"
+  },
+  "BlackJackInfo": {
+   "12": "sora_2nd"
+  },
+  "BlackJackMedal": {
+   "24": "sora_1st"
+  },
+  "BlackJackMessage": {
+   "24": "sora_1st",
+   "32": "sora_2nd"
+  },
+  "BlackJackRollRate": {
+   "128": "sora_2nd"
+  },
+  "BlackJackRuleText": {
+   "24": "sora_2nd"
+  },
+  "BreakObjectTableData": {
+   "56": "sora_1st",
+   "64": "sora_2nd"
+  },
+  "CharaArrange": {
+   "64": "sora_1st",
+   "72": "sora_2nd"
+  },
+  "ChrDataParam": {
+   "64": "sora_1st",
+   "56": "sora_2nd"
+  },
+  "FishInfo": {
+   "168": "sora_1st",
+   "224": "sora_2nd"
+  },
+  "FishingBaitInfo": {
+   "8": "sora_1st",
+   "116": "sora_2nd"
+  },
+  "FishingConstant": {
+   "24": "sora_1st",
+   "96": "sora_2nd"
+  },
+  "FishingRodInfo": {
+   "96": "sora_2nd"
+  },
+  "FishingSpot": {
+   "440": "sora_1st",
+   "184": "sora_2nd"
+  },
+  "ItemTableData": {
+   "232": "sora_1st",
+   "256": "sora_2nd"
+  },
+  "LipSyncData": {
+   "32": "sora_2nd"
+  },
+  "MapJumpChrIcon": {
+   "12": "sora_2nd"
+  },
+  "MedalItem": {
+   "8": "sora_2nd"
+  },
+  "MonsterSettingParam": {
+   "168": "sora_1st",
+   "176": "sora_2nd"
+  },
+  "NPCParam": {
+   "152": "sora_1st"
+  },
+  "NoteCookChara": {
+   "2": "sora_1st",
+   "24": "sora_2nd"
+  },
+  "NoteFishingCategory": {
+   "32": "sora_2nd"
+  },
+  "NoteMainHistory": {
+   "8": "sora_2nd"
+  },
+  "NoteMainPartnerInfo": {
+   "24": "sora_2nd"
+  },
+  "NoteMonsRecordData": {
+   "40": "sora_1st",
+   "48": "sora_2nd"
+  },
+  "OrbmentSlotParam": {
+   "28": "sora_1st",
+   "64": "sora_2nd"
+  },
+  "OutItemList": {
+   "64": "sora_2nd"
+  },
+  "PokerInfo": {
+   "12": "sora_2nd"
+  },
+  "PokerMedal": {
+   "40": "sora_1st"
+  },
+  "PokerMessage": {
+   "24": "sora_1st",
+   "32": "sora_2nd"
+  },
+  "PokerRollRate": {
+   "128": "sora_2nd"
+  },
+  "PokerRuleText": {
+   "24": "sora_2nd"
+  },
+  "PokerTrickLevel": {
+   "4": "sora_1st"
+  },
+  "PortraitDataParam": {
+   "40": "sora_1st",
+   "48": "sora_2nd"
+  },
+  "QuestRankBefore": {
+   "16": "sora_2nd"
+  },
+  "QuestText": {
+   "56": "sora_2nd"
+  },
+  "RouletteBetExplain": {
+   "16": "sora_2nd"
+  },
+  "RouletteBetRate": {
+   "40": "sora_2nd"
+  },
+  "RouletteCheat": {
+   "24": "sora_2nd"
+  },
+  "RouletteInfo": {
+   "20": "sora_2nd"
+  },
+  "RouletteMessage": {
+   "24": "sora_2nd"
+  },
+  "RouletteNumber": {
+   "12": "sora_2nd"
+  },
+  "RouletteRuleText": {
+   "24": "sora_2nd"
+  },
+  "SlotBattleEvent": {
+   "8": "sora_2nd"
+  },
+  "SlotBonus": {
+   "12": "sora_2nd"
+  },
+  "SlotCheat": {
+   "12": "sora_2nd"
+  },
+  "SlotEvent": {
+   "8": "sora_2nd"
+  },
+  "SlotInfo": {
+   "8": "sora_2nd"
+  },
+  "SlotMonsterInfo": {
+   "48": "sora_2nd"
+  },
+  "SlotPomInfo": {
+   "32": "sora_2nd"
+  },
+  "SlotReelPattern": {
+   "6": "sora_2nd"
+  },
+  "SlotReelSpeed": {
+   "8": "sora_2nd"
+  },
+  "SlotRoles": {
+   "12": "sora_2nd"
+  },
+  "SlotTBoxEvent": {
+   "8": "sora_2nd"
+  },
+  "SlotTBoxInfo": {
+   "52": "sora_2nd"
+  },
+  "StatusParam": {
+   "416": "sora_1st",
+   "424": "sora_2nd"
+  },
+  "TBoxParam": {
+   "88": "sora_1st",
+   "120": "sora_2nd"
+  },
+  "TalkTableData": {
+   "88": "sora_2nd"
+  },
+  "ViewerAttachList": {
+   "32": "sora_2nd"
+  },
+  "ViewerBGMList": {
+   "24": "sora_2nd"
+  },
+  "ViewerCharaEquipList": {
+   "24": "sora_2nd"
+  },
+  "ViewerCharaList": {
+   "64": "sora_2nd"
+  },
+  "ViewerCharaSelectList": {
+   "24": "sora_2nd"
+  },
+  "ViewerCheekList": {
+   "24": "sora_2nd"
+  },
+  "ViewerCostumeList": {
+   "32": "sora_2nd"
+  },
+  "ViewerEnvList": {
+   "16": "sora_2nd"
+  },
+  "ViewerEyeLineList": {
+   "24": "sora_2nd"
+  },
+  "ViewerFaceList": {
+   "48": "sora_2nd"
+  },
+  "ViewerHairList": {
+   "24": "sora_2nd"
+  },
+  "ViewerMainList": {
+   "24": "sora_2nd"
+  },
+  "ViewerMapData": {
+   "80": "sora_2nd"
+  },
+  "ViewerMapList": {
+   "16": "sora_2nd"
+  },
+  "ViewerMotionList": {
+   "40": "sora_2nd"
+  },
+  "ViewerMouseList": {
+   "24": "sora_2nd"
+  },
+  "ViewerNeckDirList": {
+   "24": "sora_2nd"
+  },
+  "ViewerShotList": {
+   "16": "sora_2nd"
+  },
+  "ViewerSystemList": {
+   "16": "sora_2nd"
+  },
+  "ViewerWeaponList": {
+   "24": "sora_2nd"
   }
  }
 }

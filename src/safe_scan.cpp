@@ -3,8 +3,6 @@
 #include <Windows.h>
 #include <cstring>
 
-// 本文件用 SEH（__try/__except）保护内存访问。函数体内不放任何需要栈展开的
-// C++ 对象，以满足 MSVC 对 __try 的限制。
 namespace sora_console::safe_scan {
 
 int SafeScanRegionForVtables(std::uintptr_t begin, std::uintptr_t end,
@@ -33,7 +31,6 @@ int SafeScanRegionForVtables(std::uintptr_t begin, std::uintptr_t end,
             }
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) {
-        // 该区域中途变得不可读：返回此前已收集的命中。
     }
     return n;
 }
@@ -67,4 +64,4 @@ bool SafeWriteBytes(std::uintptr_t addr, const void* src, std::size_t n) {
     return ok;
 }
 
-}  // namespace sora_console::safe_scan
+}
