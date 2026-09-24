@@ -4,6 +4,7 @@
 #include "modkit/scene_merge.h"
 #include "modkit/tbl_codec.h"
 #include "modkit/tbl_merge.h"
+#include "modkit/generic_tbl.h"
 #include "modkit/fpac_reader.h"
 #include "modkit/mod_archive.h"
 #include "json.hpp"
@@ -216,7 +217,8 @@ static void parseTblFile(const fs::path& p, std::string& outTable,
                          std::vector<nlohmann::json>& addRows,
                          std::vector<tbl_merge::EditOp>& edits,
                          std::vector<nlohmann::json>& cloneRows,
-                         const std::string& modName, const std::set<std::string>& off, std::string& log) {
+                         const std::string& modName, const std::set<std::string>& off, std::string& log,
+                         std::vector<std::string>* addMods = nullptr) {
     std::ifstream f(p, std::ios::binary);
     if (!f) return;
     nlohmann::json j;
@@ -262,7 +264,10 @@ static void parseTblFile(const fs::path& p, std::string& outTable,
     if (j.contains("add_rows") && j["add_rows"].is_array()) {
         size_t i = 0;
         for (const auto& row : j["add_rows"]) {
-            if (row.is_object() && !entryOff(off, "add_rows", i)) { nlohmann::json r = row; aliasLp(r); addRows.push_back(std::move(r)); }
+            if (row.is_object() && !entryOff(off, "add_rows", i)) {
+                nlohmann::json r = row; aliasLp(r); addRows.push_back(std::move(r));
+                if (addMods) addMods->push_back(modName);
+            }
             ++i;
         }
     }
@@ -294,7 +299,10 @@ RunResult Run(const Paths& paths, bool force) {
     std::vector<ModInfo> manifest = LoadModManifest(paths.modsDir, log);
     std::vector<fs::path> datFiles;
     std::vector<PathSrc> patchFiles, injectFiles, datReplaceFiles, tableReplaceFiles;
+    std::vector<PathSrc> aiFiles;
+    std::vector<PathSrc> aniFiles;
     std::vector<PathSrc> datPatchFiles;
+    std::vector<PathSrc> modJsons;
     std::vector<TblSrc> tblDirFiles;
     std::vector<AssetSrc> assetFiles;
     int enabledMods = 0;
@@ -320,6 +328,8 @@ RunResult Run(const Paths& paths, bool force) {
               for (auto& s : sfs) patchFiles.push_back({ std::move(s), m.name, "" }); } }
         { fs::path ij = dir / "add_dat_ini.json";
           if (fs::exists(ij, ec) && !off("add_dat_ini.json")) injectFiles.push_back({ ij, m.name, "" }); }
+        { fs::path mj = dir / "mod.json";
+          if (fs::exists(mj, ec)) modJsons.push_back({ mj, m.name, "" }); }
         { fs::path dp = dir / "ListExtraLoad";
           if (fs::is_directory(dp, ec)) {
               std::vector<fs::path> pfs;
@@ -408,6 +418,22 @@ RunResult Run(const Paths& paths, bool force) {
                           && !off("dat" + pre + "/" + df.path().filename().generic_string())) dfs.push_back(df.path());
                   std::sort(dfs.begin(), dfs.end());
                   for (auto& dd : dfs) datReplaceFiles.push_back({ std::move(dd), m.name, lang }); } }
+            { fs::path d = lang.empty() ? (dir / "ai") : (dir / "ai" / lang);
+              if (fs::is_directory(d, ec)) {
+                  std::vector<fs::path> afs;
+                  for (const auto& af : fs::directory_iterator(d, ec))
+                      if (af.is_regular_file() && af.path().extension() == ".dat"
+                          && !off("ai" + pre + "/" + af.path().filename().generic_string())) afs.push_back(af.path());
+                  std::sort(afs.begin(), afs.end());
+                  for (auto& a : afs) aiFiles.push_back({ std::move(a), m.name, lang }); } }
+            { fs::path d = lang.empty() ? (dir / "ani") : (dir / "ani" / lang);
+              if (fs::is_directory(d, ec)) {
+                  std::vector<fs::path> nfs;
+                  for (const auto& nf : fs::directory_iterator(d, ec))
+                      if (nf.is_regular_file() && nf.path().extension() == ".dat"
+                          && !off("ani" + pre + "/" + nf.path().filename().generic_string())) nfs.push_back(nf.path());
+                  std::sort(nfs.begin(), nfs.end());
+                  for (auto& n : nfs) aniFiles.push_back({ std::move(n), m.name, lang }); } }
             { fs::path d = lang.empty() ? (dir / "table") : (dir / "table" / lang);
               if (fs::is_directory(d, ec)) {
                   std::vector<fs::path> tfs;
@@ -420,7 +446,7 @@ RunResult Run(const Paths& paths, bool force) {
     }
     r.mods = (int)manifest.size();
     log += "[modkit] manifest: " + std::to_string(manifest.size()) + " mods (" + std::to_string(enabledMods) + " enabled)\n";
-    if (patchFiles.empty() && injectFiles.empty() && tblDirFiles.empty() && datReplaceFiles.empty() && tableReplaceFiles.empty() && assetFiles.empty() && datPatchFiles.empty())
+    if (patchFiles.empty() && injectFiles.empty() && tblDirFiles.empty() && datReplaceFiles.empty() && tableReplaceFiles.empty() && assetFiles.empty() && datPatchFiles.empty() && aiFiles.empty() && aniFiles.empty())
         log += "[modkit] (no enabled mod content -> producing clean/vanilla cache)\n";
 
     std::vector<std::string> langs;
@@ -430,6 +456,7 @@ RunResult Run(const Paths& paths, bool force) {
     std::string primaryLang = (std::find(langs.begin(), langs.end(), "sc") != langs.end()) ? "sc" : langs[0];
 
     std::string fpInput;
+    fpInput += "OUTPUTS:ai,mod_chars,mod_chars_json\n";
     { fpInput += "LANGS:"; for (const auto& L : langs) { fpInput += L; fpInput += ","; } fpInput += "\n"; }
     for (const auto& m : manifest) {
         fpInput += "MOD:"; fpInput += m.name; fpInput += m.enabled ? "=1" : "=0";
@@ -440,8 +467,11 @@ RunResult Run(const Paths& paths, bool force) {
     for (const auto& pf : injectFiles) { fpInput += pf.lang; fpInput += "|"; fpInput += pf.path.generic_string(); fpInput += "\n"; fpInput += readAll(pf.path); fpInput += "\n"; }
     for (const auto& pf : tblDirFiles) { fpInput += pf.lang; fpInput += "|"; fpInput += pf.path.generic_string(); fpInput += "\n"; fpInput += readAll(pf.path); fpInput += "\n"; }
     for (const auto& pf : datReplaceFiles) { fpInput += pf.lang; fpInput += "|"; fpInput += pf.path.generic_string(); fpInput += "\n"; fpInput += readAll(pf.path); fpInput += "\n"; }
+    for (const auto& pf : aiFiles)         { fpInput += "ai|"; fpInput += pf.lang; fpInput += "|"; fpInput += pf.path.generic_string(); fpInput += "\n"; fpInput += readAll(pf.path); fpInput += "\n"; }
+    for (const auto& pf : aniFiles)        { fpInput += "ani|"; fpInput += pf.lang; fpInput += "|"; fpInput += pf.path.generic_string(); fpInput += "\n"; fpInput += readAll(pf.path); fpInput += "\n"; }
     for (const auto& pf : tableReplaceFiles) { fpInput += pf.lang; fpInput += "|"; fpInput += pf.path.generic_string(); fpInput += "\n"; fpInput += readAll(pf.path); fpInput += "\n"; }
     for (const auto& pf : datPatchFiles)     { fpInput += "listextraload|"; fpInput += pf.path.generic_string(); fpInput += "\n"; fpInput += readAll(pf.path); fpInput += "\n"; }
+    for (const auto& pf : modJsons)          { fpInput += "modjson|"; fpInput += pf.path.generic_string(); fpInput += "\n"; fpInput += readAll(pf.path); fpInput += "\n"; }
     for (const auto& df : datFiles) { fpInput += df.generic_string(); fpInput += "\n"; fpInput += readAll(df); fpInput += "\n"; }
     for (const auto& a : assetFiles) {
         std::error_code fe; auto sz = fs::file_size(a.src, fe); auto mt = fs::last_write_time(a.src, fe);
@@ -516,8 +546,11 @@ RunResult Run(const Paths& paths, bool force) {
         log += "[modkit] merged scene/" + target + ".json (+" + std::to_string(mr.tblHooks.size()) + " lookpoint hooks)\n";
     }
 
-    struct TblAccum { std::string table; std::vector<nlohmann::json> addRows; std::vector<tbl_merge::EditOp> edits; std::vector<nlohmann::json> cloneRows; std::set<std::string> mods; };
+    struct TblAccum { std::string table; std::vector<nlohmann::json> addRows; std::vector<std::string> addMods; std::vector<tbl_merge::EditOp> edits; std::vector<nlohmann::json> cloneRows; std::set<std::string> mods; };
     report["tables"] = nlohmann::json::array();
+    std::vector<nlohmann::json> charAdds;
+    std::vector<std::string> charAddMods;
+    std::vector<uint8_t> charNameTbl, charStatusTbl;
 
     if (!allHooks.empty() || !tblDirFiles.empty()) {
         for (const std::string& L : langs) {
@@ -528,13 +561,14 @@ RunResult Run(const Paths& paths, bool force) {
                 row["text1"] = h.text1; row["text2"] = h.text2; row["text3"] = h.text3; row["empty"] = h.empty;
                 row["arr1"] = h.arr1; row["uint1"] = h.uint1; row["arr2"] = h.arr2; row["uint2"] = h.uint2;
                 tblAcc["t_lookpoint"].addRows.push_back(std::move(row));
+                tblAcc["t_lookpoint"].addMods.push_back(std::string());
             }
             for (const auto& tf : tblDirFiles) {
                 if (!(tf.lang.empty() || tf.lang == L)) continue;
                 std::string stem = tf.path.stem().string();
                 const std::string& modName = tf.mod;
                 TblAccum& a = tblAcc[stem];
-                parseTblFile(tf.path, a.table, a.addRows, a.edits, a.cloneRows, modName, tf.off, log);
+                parseTblFile(tf.path, a.table, a.addRows, a.edits, a.cloneRows, modName, tf.off, log, &a.addMods);
                 a.mods.insert(modName);
             }
             if (tblAcc.empty()) continue;
@@ -578,6 +612,10 @@ RunResult Run(const Paths& paths, bool force) {
                     if (isPrimary) ++r.tbls;
                     log += "[modkit] merged " + outSub + "/" + stem + ".tbl (+" + std::to_string(kv.second.addRows.size()) + " rows, " + std::to_string(kv.second.edits.size()) + " edits, " + std::to_string(kv.second.cloneRows.size()) + " clones)\n";
                 } else { ++r.failed; log += "[modkit] write FAIL " + outSub + "/" + stem + "\n"; if (isPrimary) pushErr(stem + ".tbl", tmods, "写缓存失败"); continue; }
+                if (isPrimary && stem == "t_name" && !kv.second.addRows.empty()) {
+                    charAdds = kv.second.addRows; charAddMods = kv.second.addMods; charNameTbl = outBytes;
+                }
+                if (isPrimary && stem == "t_status") charStatusTbl = outBytes;
 
                 if (!isPrimary) continue;
                 nlohmann::json tj;
@@ -598,6 +636,177 @@ RunResult Run(const Paths& paths, bool force) {
                 report["tables"].push_back(std::move(tj));
             }
         }
+    }
+
+    struct ModCharRow { int64_t id; int slot; std::string name, face, mod; int64_t level; double expCoef; };
+    std::vector<ModCharRow> modCharRows;
+    {
+        std::string list ="# auto-generated by modkit: <character_id>\t<slot>\t<name>\t<face>\t<level>\t<exp_coef>\t<mod>\n";
+        auto clean = [](std::string s) { for (char& c : s) if (c == '\t' || c == '\r' || c == '\n') c = ' '; return s; };
+        if (!charAdds.empty() && !charNameTbl.empty()) {
+            std::vector<uint8_t> statBytes = charStatusTbl;
+            if (statBytes.empty()) {
+                FpacReader pr;
+                if (pr.Open(fs::path(paths.pacSteamDir) / ("table_" + primaryLang + ".pac")))
+                    pr.ReadEntry("table_" + primaryLang + "/t_status.tbl", statBytes);
+            }
+            TblFileG nameF, statF;
+            std::string e1, e2;
+            const bool okN = DecodeTblG(charNameTbl, paths.schemasDir, "Sora1", nameF, e1);
+            const bool okS = !statBytes.empty() && DecodeTblG(statBytes, paths.schemasDir, "Sora1", statF, e2);
+            const TblTableG* nt = nullptr;
+            const TblTableG* stt = nullptr;
+            if (okN) for (const auto& t : nameF.tables) if (t.name == "NameTableData") { nt = &t; break; }
+            if (okS) for (const auto& t : statF.tables) if (t.name == "StatusParam") { stt = &t; break; }
+            if (nt == nullptr || stt == nullptr || nt->rows.size() < charAdds.size()) {
+                ++r.failed;
+                log += "[modkit] mod_chars: 解 t_name / t_status 失败(" + e1 + e2 + "),自定义角色清单没生成\n";
+                pushErr("自定义角色", {}, "解 t_name / t_status 失败,自定义角色清单没生成");
+            } else {
+                auto I = [](const TblRowG& row, const char* k) -> int64_t { const TblValue* v = row.find(k); return v ? v->i : 0; };
+                auto F = [](const TblRowG& row, const char* k) -> double { const TblValue* v = row.find(k); return v ? v->f : 0.0; };
+                auto S = [](const TblRowG& row, const char* k) -> std::string { const TblValue* v = row.find(k); return v ? v->s : std::string(); };
+                std::map<std::string, const TblRowG*> statByKey;
+                for (const auto& row : stt->rows) statByKey[S(row, "ai_file")] = &row;
+                const size_t n = nt->rows.size(), first = n - charAdds.size();
+                for (size_t j = 0; j < charAdds.size(); ++j) {
+                    const TblRowG& row = nt->rows[first + j];
+                    const int64_t id = I(row, "character_id");
+                    const int slot = static_cast<int>(I(row, "long2") & 0xFF);
+                    const std::string mod = j < charAddMods.size() ? charAddMods[j] : std::string();
+                    const std::string name = clean(S(row, "name"));
+                    if (charAdds[j].value("character_id", static_cast<int64_t>(0)) != id) {
+                        log += "[modkit] mod_chars: t_name 表尾和 add_rows 对不上,后面的不再列\n";
+                        break;
+                    }
+                    if (slot < 1 || slot > 99) continue;
+                    const std::string who = "自定义角色 " + std::to_string(id) + (name.empty() ? std::string() : "「" + name + "」");
+                    std::string why;
+                    for (size_t k = 0; k < n && why.empty(); ++k) {
+                        if (k == first + j) continue;
+                        const TblRowG& o = nt->rows[k];
+                        if (I(o, "character_id") == id) why = "角色编号 " + std::to_string(id) + " 已被 t_name 另一行占用";
+                        else if ((I(o, "long2") & 0xFF) == slot)
+                            why = "记录槽 " + std::to_string(slot) + " 已被角色 " + std::to_string(I(o, "character_id")) + " 占用";
+                    }
+                    const auto st = statByKey.find(S(row, "ref_name"));
+                    if (why.empty() && st == statByKey.end()) why = "状态行「" + S(row, "ref_name") + "」在 t_status 里查不到";
+                    if (!why.empty()) {
+                        ++r.failed;
+                        log += "[modkit] mod_chars: " + who + " 没列入:" + why + "\n";
+                        pushErr(who, { mod }, why);
+                        continue;
+                    }
+                    const TblRowG& sr = *st->second;
+                    const std::string file5 = clean(S(sr, "file5"));
+                    const std::string face = file5.empty() ? std::string() : "image/fc_" + file5 + ".dds";
+                    const int64_t level = I(sr, "level");
+                    const double expCoef = F(sr, "exp_growth");
+                    char coef[32];
+                    snprintf(coef, sizeof coef, "%.4f", expCoef);
+                    list += std::to_string(id) + "\t" + std::to_string(slot) + "\t" + name + "\t" + face + "\t"
+                          + std::to_string(level) + "\t" + coef + "\t" + clean(mod) + "\n";
+                    modCharRows.push_back({ id, slot, name, face, mod, level, expCoef });
+                    log += "[modkit] mod_chars: " + who + " 记录槽 " + std::to_string(slot) + " <- " + mod + "\n";
+                }
+            }
+        }
+        writeText(fs::path(paths.cacheDir).parent_path() / "mod_chars.list", list);
+    }
+
+    {
+        struct CharKey { const char* key; bool def; };
+        static const CharKey kCharKeys[] = {
+            { "player_control", true },
+            { "opening_by_ai", false },
+            { "brave_attack", false },
+            { "sub_menu", false },
+            { "hide_attack_in_crafts", true },
+            { "hide_ai_only_crafts", true },
+            { "camp_orbment", true },
+            { "field_leader", false },
+        };
+        struct CharSet { bool v; std::string mod; };
+        std::map<int64_t, std::map<std::string, CharSet>> sets;
+        for (const auto& pf : modJsons) {
+            const std::string& mod = pf.mod;
+            auto bad = [&](const std::string& why) {
+                ++r.failed;
+                log += "[modkit] mod.json " + mod + ": " + why + "\n";
+                pushErr("mod.json", { mod }, why);
+            };
+            const std::string raw = readAll(pf.path);
+            nlohmann::json j;
+            try {
+                j = nlohmann::json::parse(raw);
+            } catch (const nlohmann::json::parse_error& e) {
+                const size_t at = std::min<size_t>(e.byte, raw.size());
+                const long line = 1 + static_cast<long>(std::count(raw.begin(), raw.begin() + static_cast<std::ptrdiff_t>(at), '\n'));
+                bad("mod.json 格式不对(第 " + std::to_string(line) + " 行附近),里面的角色设置没用上");
+                continue;
+            }
+            if (!j.is_object() || !j.contains("characters")) continue;
+            const nlohmann::json& cs = j["characters"];
+            if (!cs.is_array()) {
+                bad("characters 要写成 [ … ](一个角色一段 { … }),没用上");
+                continue;
+            }
+            for (size_t k = 0; k < cs.size(); ++k) {
+                const nlohmann::json& c = cs[k];
+                const std::string nth = "characters 第 " + std::to_string(k + 1) + " 段";
+                if (!c.is_object()) { bad(nth + "要写成 { … },没用上"); continue; }
+                const auto idIt = c.find("character_id");
+                if (idIt == c.end() || !idIt->is_number_integer()) { bad(nth + "缺整数的角色编号 character_id,没用上"); continue; }
+                const int64_t id = idIt->get<int64_t>();
+                const std::string who = "角色 " + std::to_string(id);
+                if (std::none_of(modCharRows.begin(), modCharRows.end(), [id](const ModCharRow& x) { return x.id == id; })) {
+                    bad(who + " 不是 MOD 新加的队伍角色(t_name 里没有它带记录槽的那一行),这段设置没用上");
+                    continue;
+                }
+                std::map<std::string, CharSet>& got = sets[id];
+                for (auto it = c.begin(); it != c.end(); ++it) {
+                    if (it.key() == "character_id") continue;
+                    const CharKey* ck = nullptr;
+                    for (const auto& x : kCharKeys) if (it.key() == x.key) { ck = &x; break; }
+                    if (ck == nullptr) { bad(who + " 的「" + it.key() + "」不认识(拼错了?),没用上"); continue; }
+                    if (!it->is_boolean()) { bad(who + " 的「" + it.key() + "」要写 true 或 false,没用上"); continue; }
+                    const bool v = it->get<bool>();
+                    const auto prev = got.find(ck->key);
+                    if (prev != got.end() && prev->second.v != v && prev->second.mod != mod) {
+                        ++r.conflicts;
+                        log += "[modkit] CONFLICT mod.json characters[" + std::to_string(id) + "]." + ck->key + ": "
+                             + (prev->second.v ? "true" : "false") + " (" + prev->second.mod + ") -> "
+                             + (v ? "true" : "false") + " (" + mod + ") [winner]\n";
+                    }
+                    got[ck->key] = { v, mod };
+                }
+            }
+        }
+        nlohmann::json out;
+        out["version"] = 1;
+        out["fingerprint"] = fp;
+        out["characters"] = nlohmann::json::array();
+        report["modChars"] = nlohmann::json::array();
+        for (const ModCharRow& row : modCharRows) {
+            nlohmann::json c = { {"character_id", row.id}, {"slot", row.slot}, {"name", row.name}, {"face", row.face},
+                                 {"level", row.level}, {"exp_coef", row.expCoef}, {"mod", row.mod} };
+            nlohmann::json st = nlohmann::json::object();
+            const auto sit = sets.find(row.id);
+            for (const auto& x : kCharKeys) {
+                bool v = x.def;
+                if (sit != sets.end()) {
+                    const auto f = sit->second.find(x.key);
+                    if (f != sit->second.end()) v = f->second.v;
+                }
+                c[x.key] = v;
+                st[x.key] = v;
+            }
+            out["characters"].push_back(std::move(c));
+            report["modChars"].push_back({ {"id", row.id}, {"slot", row.slot}, {"name", row.name}, {"face", row.face},
+                                           {"level", row.level}, {"expCoef", row.expCoef}, {"mod", row.mod}, {"settings", st} });
+        }
+        writeText(fs::path(paths.cacheDir).parent_path() / "mod_chars.json",
+                  out.dump(2, ' ', false, nlohmann::json::error_handler_t::replace) + "\n");
     }
 
     {
@@ -697,6 +906,45 @@ RunResult Run(const Paths& paths, bool force) {
             }
         }
     }
+
+    auto deployScripts = [&](const std::vector<PathSrc>& files, const std::string& dir, const std::string& what) {
+        report[dir] = nlohmann::json::array();
+        struct Prov { std::string mod; fs::path path; };
+        std::map<std::string, std::vector<Prov>> byKey;
+        std::vector<std::string> order;
+        for (const auto& af : files) {
+            std::string key = af.lang + "/" + wtou8(af.path.filename().wstring());
+            if (byKey.find(key) == byKey.end()) order.push_back(key);
+            byKey[key].push_back({ af.mod, af.path });
+        }
+        for (const std::string& key : order) {
+            auto& provs = byKey[key];
+            std::string lang = key.substr(0, key.find('/'));
+            std::string fname = key.substr(key.find('/') + 1);
+            std::string sub = lang.empty() ? "script" : ("script_" + lang);
+            std::string tag = lang.empty() ? "" : ("[" + lang + "]");
+            const auto& win = provs.back();
+            std::string s = readAll(win.path);
+            if (s.size() < 4 || s.compare(0, 4, "#scp") != 0) {
+                ++r.failed; log += "[modkit] " + dir + " 不是 #scp 脚本(或读不到): " + wtou8(win.path.wstring()) + "\n";
+                pushErr(what + " \"" + fname + "\"" + tag, { win.mod }, "不是 #scp 脚本(或读取失败)"); continue;
+            }
+            std::vector<uint8_t> bytes(s.begin(), s.end());
+            fs::path dst = fs::path(paths.cacheDir) / sub / dir / win.path.filename();
+            if (!writeAll(dst, bytes)) { ++r.failed; log += "[modkit] " + dir + " copy FAIL " + sub + "/" + dir + "/" + fname + "\n"; pushErr(what + " \"" + fname + "\"" + tag, { win.mod }, "写缓存失败"); continue; }
+            nlohmann::json one; one["name"] = fname; one["lang"] = lang; one["winner"] = win.mod; one["mods"] = nlohmann::json::array();
+            for (auto& p : provs) one["mods"].push_back(p.mod);
+            report[dir].push_back(std::move(one));
+            log += "[modkit] " + dir + " " + sub + "/" + dir + "/" + fname + " <- " + win.mod + (provs.size() > 1 ? " (覆盖其它)" : "") + "\n";
+            for (size_t i = 0; i + 1 < provs.size(); ++i) {
+                ++r.conflicts;
+                report["datConflicts"].push_back({ {"name", dir + "/" + fname}, {"lang", lang}, {"fromMod", provs[i].mod}, {"byMod", win.mod} });
+                log += "[modkit] CONFLICT " + dir + " " + sub + "/" + dir + "/" + fname + ": " + provs[i].mod + " -> " + win.mod + " [winner,整文件]\n";
+            }
+        }
+    };
+    deployScripts(aiFiles, "ai", "AI");
+    deployScripts(aniFiles, "ani", "动作脚本");
 
     {
         report["listExtraLoad"] = nlohmann::json::array();

@@ -47,7 +47,7 @@ using ojson = nlohmann::ordered_json;
 
 static float g_dpiScale = 1.0f;
 
-static const char* kVersion = "1.0.8";
+static const char* kVersion = "1.0.9";
 static const wchar_t* kUpdateHost = L"api.github.com";
 static const wchar_t* kUpdatePath = L"/repos/lom2333/ED9ModManager/releases/latest";
 
@@ -240,6 +240,8 @@ struct App {
     float modAllOnAnim = 0.0f, modAllOffAnim = 0.0f;
     int   cfgLastFrame = -1;
     std::vector<AssetRow> selAssets;
+    std::vector<AssetRow> selAi;
+    std::vector<AssetRow> selAni;
     std::vector<AudioGroup> audioGroups;
     std::set<std::string> conflictMods;
     std::set<std::string> errorMods;
@@ -659,6 +661,38 @@ static std::vector<std::string> scanModAssetRels(const App& a, const std::string
     return out;
 }
 
+static std::vector<std::string> scanModScriptRels(const App& a, const std::string& modName, const char* sub) {
+    std::vector<std::string> out;
+    std::error_code ec;
+    const fs::path top = modRootOf(a, modName) / sub;
+    for (const char* lang : { "", "sc", "tc", "kr" }) {
+        const fs::path d = lang[0] ? top / lang : top;
+        if (!fs::is_directory(d, ec)) continue;
+        for (const auto& e : fs::directory_iterator(d, ec))
+            if (e.is_regular_file(ec) && e.path().extension() == L".dat")
+                out.push_back(std::string(sub) + "/" + (lang[0] ? std::string(lang) + "/" : std::string()) + ws2utf8(e.path().filename().wstring()));
+    }
+    std::sort(out.begin(), out.end());
+    return out;
+}
+
+static void computeSelScripts(App& a, const std::string& modName, const char* sub, std::vector<AssetRow>& rows) {
+    rows.clear();
+    std::map<std::string, std::vector<std::string>> prov;
+    for (const auto& mm : a.mods) {
+        if (!mm.enabled) continue;
+        for (const auto& rel : scanModScriptRels(a, mm.name, sub)) prov[rel].push_back(mm.name);
+    }
+    for (const auto& rel : scanModScriptRels(a, modName, sub)) {
+        AssetRow ar; ar.rel = rel;
+        auto it = prov.find(rel);
+        if (it != prov.end()) ar.providers = it->second;
+        ar.conflict = ar.providers.size() > 1;
+        ar.winner = ar.providers.empty() ? std::string() : ar.providers.back();
+        rows.push_back(std::move(ar));
+    }
+}
+
 static void scanAudioGroups(App& a, const std::string& modName) {
     a.audioGroups.clear();
     const fs::path root = modRootOf(a, modName);
@@ -717,6 +751,8 @@ static void updateLeftIndicators(App& a) {
         for (const auto& m : a.mods) {
             if (!m.enabled) continue;
             for (const auto& rel : scanModAssetRels(a, m.name)) prov[rel].push_back(m.name);
+            for (const auto& rel : scanModScriptRels(a, m.name, "ai")) prov[rel].push_back(m.name);
+            for (const auto& rel : scanModScriptRels(a, m.name, "ani")) prov[rel].push_back(m.name);
         }
         for (const auto& kv : prov)
             if (kv.second.size() > 1) for (const auto& mn : kv.second) a.conflictMods.insert(mn);
@@ -879,7 +915,6 @@ static bool TblTypeHasUnmodeledPool(const std::string& name) {
         "TBoxParam",
         "CollisionFootStepInfo",
         "FieldItemTableData",
-        "QuartzParam",
         "PortraitDataParam",
         "EyeAttachData",
         "EyeModifyAttachData",
@@ -1465,6 +1500,43 @@ static void drawModAssets(App& a, const orch::ModInfo& m) {
     }
 }
 
+static void drawModScripts(const orch::ModInfo& m, const std::vector<AssetRow>& rows, const char* hdrConf, const char* hdrPlain,
+                           const char* grpId, const char* chip) {
+    if (rows.empty()) return;
+    int nconf = 0; for (auto& ar : rows) if (ar.conflict) ++nconf;
+    ImGui::Spacing();
+    char hdr[260];
+    if (nconf) snprintf(hdr, sizeof hdr, T(hdrConf), (int)rows.size(), nconf);
+    else       snprintf(hdr, sizeof hdr, T(hdrPlain), (int)rows.size());
+    std::string hdrId = std::string(hdr) + "###" + grpId;
+    if (!ImGui::CollapsingHeader(hdrId.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) return;
+    const ImVec4 red(1.0f, 0.45f, 0.40f, 1.0f);
+    const ImVec4 blue(0.55f, 0.78f, 1.00f, 1.0f);
+    for (const auto& ar : rows) {
+        ImGui::Indent(16.0f);
+        ImGui::TextColored(ar.conflict ? red : blue, "%s", ar.conflict ? T("[覆盖冲突]") : chip);
+        ImGui::SameLine();
+        ImGui::TextUnformatted(ar.rel.c_str());
+        if (ar.conflict) {
+            std::string others;
+            for (const auto& p : ar.providers) if (p != m.name) others += (others.empty() ? "" : ", ") + p;
+            ImGui::Indent(16.0f);
+            ImGui::TextColored(red, T("也被 [%s] 覆盖  →  加载顺序靠后的 [%s] 生效"),
+                               others.empty() ? T("本 mod 内重复") : others.c_str(), ar.winner.c_str());
+            ImGui::Unindent(16.0f);
+        }
+        ImGui::Unindent(16.0f);
+    }
+}
+
+static void drawModAi(App& a, const orch::ModInfo& m) {
+    drawModScripts(m, a.selAi, "AI文件 (%d 个, 冲突 %d)", "AI文件 (%d 个)", "aigrp", "[AI]");
+}
+
+static void drawModAni(App& a, const orch::ModInfo& m) {
+    drawModScripts(m, a.selAni, "动作文件 (%d 个, 冲突 %d)", "动作文件 (%d 个)", "anigrp", "[ANI]");
+}
+
 static ImFont* g_chipFont = nullptr;
 
 struct ChipQ { ImVec2 c, half; float* anim; float scaleUp; bool hov; std::string lbl; };
@@ -1532,6 +1604,8 @@ static void drawModConfig(App& a) {
     if (a.compsFor != m.name) {
         a.comps = scanModComponents(a, m.name);
         computeSelAssets(a, m.name);
+        computeSelScripts(a, m.name, "ai", a.selAi);
+        computeSelScripts(a, m.name, "ani", a.selAni);
         scanAudioGroups(a, m.name);
         a.compsFor = m.name;
         a.cfgFile.clear();
@@ -1576,6 +1650,8 @@ static void drawModConfig(App& a) {
         modGameSetting();
         ImGui::TextDisabled("%s", T("(此 MOD 无 tbl 配置:Mod\\<mod>\\tbl\\*.json,语言专属放 tbl\\sc\\ 等)"));
         drawModAssets(a, m);
+        drawModAi(a, m);
+        drawModAni(a, m);
         return;
     }
 
@@ -1739,6 +1815,8 @@ static void drawModConfig(App& a) {
     chipFlush();
     ImGui::Separator();
     drawModAssets(a, m);
+    drawModAi(a, m);
+    drawModAni(a, m);
 }
 
 static void centerModal(float fracW = 0, float fracH = 0,
@@ -1797,6 +1875,9 @@ static void drawSettings(App& a) {
 struct ChangeEntry { const char* ver; const char* date; std::vector<const char*> items; };
 static const std::vector<ChangeEntry>& changelog() {
     static const std::vector<ChangeEntry> log = {
+        { "1.0.9", "2026-09-24", {
+            "新增Ani和Ai文件通道",
+        } },
         { "1.0.8", "2026-09-17", {
             "已适配正式版本",
         } },

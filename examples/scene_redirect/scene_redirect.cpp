@@ -105,6 +105,10 @@ static void* __fastcall hk_Open(void* self, const char* name, unsigned p3, unsig
             const char* rest = name + 13;
             _snprintf_s(neuBuf, sizeof(neuBuf), _TRUNCATE, "script/%s", rest); neuLookup = neuBuf;
             if (g_lang[0]) { _snprintf_s(langBuf, sizeof(langBuf), _TRUNCATE, "script_%s/%s", g_lang, rest); langLookup = langBuf; }
+        } else if (strncmp(name, "script/ai/", 10) == 0) {
+            if (g_lang[0]) { _snprintf_s(langBuf, sizeof(langBuf), _TRUNCATE, "script_%s/ai/%s", g_lang, name + 10); langLookup = langBuf; }
+        } else if (strncmp(name, "script/ani/", 11) == 0) {
+            if (g_lang[0]) { _snprintf_s(langBuf, sizeof(langBuf), _TRUNCATE, "script_%s/ani/%s", g_lang, name + 11); langLookup = langBuf; }
         }
         void* buf = nullptr;
         const char* hitName = langLookup;

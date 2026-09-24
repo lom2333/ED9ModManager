@@ -1521,7 +1521,7 @@
    "quartz_id": "ushort",
    "element_id": "ushort",
    "flags_04": "uint",
-   "pattern_ref": "ulong",
+   "pattern_ref": "toffset",
    "earth_cost": "ushort",
    "water_cost": "ushort",
    "fire_cost": "ushort",

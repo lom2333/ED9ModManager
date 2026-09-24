@@ -10,11 +10,14 @@
 #include <MinHook.h>
 #include <Windows.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <mutex>
 #include <string>
+#include <vector>
 
 namespace ed9loader::plugin_loader {
 namespace {
@@ -252,8 +255,7 @@ void DoLoadAll() {
         return;
     }
 
-    int found = 0;
-    int loaded = 0;
+    std::vector<std::filesystem::path> dlls;
     for (const auto& entry : std::filesystem::directory_iterator(plugins_dir, error)) {
         if (!entry.is_regular_file()) {
             continue;
@@ -262,6 +264,30 @@ void DoLoadAll() {
         if (_wcsicmp(path.extension().c_str(), L".dll") != 0) {
             continue;
         }
+        dlls.push_back(path);
+    }
+    static const wchar_t* const kLoadFirst[] = {L"SceneRedirect.dll", L"ScriptInject.dll"};
+    const auto rank = [](const std::filesystem::path& p) {
+        const std::wstring n = p.filename().wstring();
+        for (size_t i = 0; i < std::size(kLoadFirst); ++i) {
+            if (_wcsicmp(n.c_str(), kLoadFirst[i]) == 0) {
+                return static_cast<int>(i);
+            }
+        }
+        return static_cast<int>(std::size(kLoadFirst));
+    };
+    std::stable_sort(dlls.begin(), dlls.end(), [&rank](const std::filesystem::path& a, const std::filesystem::path& b) {
+        const int ra = rank(a);
+        const int rb = rank(b);
+        if (ra != rb) {
+            return ra < rb;
+        }
+        return _wcsicmp(a.filename().c_str(), b.filename().c_str()) < 0;
+    });
+
+    int found = 0;
+    int loaded = 0;
+    for (const auto& path : dlls) {
         ++found;
         const std::string name = SafeName(path);
 
