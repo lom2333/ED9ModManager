@@ -10,6 +10,8 @@
 #include "json.hpp"
 
 #include <algorithm>
+#include <cstring>
+#include <cwchar>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -209,6 +211,12 @@ Paths FromGameDir(const std::wstring& gameDir) {
     return p;
 }
 
+static std::string tblTargetOf(const fs::path& p) {
+    const std::string s = p.stem().string();
+    const size_t dot = s.find('.');
+    return dot == std::string::npos ? s : s.substr(0, dot);
+}
+
 static bool entryOff(const std::set<std::string>& off, const char* sec, size_t idx) {
     return !off.empty() && off.count(std::string(sec) + "/" + std::to_string(idx)) > 0;
 }
@@ -397,6 +405,18 @@ RunResult Run(const Paths& paths, bool force) {
               }
               std::sort(srs.begin(), srs.end(), [](const AssetSrc& a, const AssetSrc& b){ return a.rel < b.rel; });
               for (auto& s : srs) assetFiles.push_back(std::move(s)); } }
+        { fs::path vfxDir = dir / "vfx";
+          if (fs::is_directory(vfxDir, ec)) {
+              std::vector<AssetSrc> vs;
+              for (auto it = fs::recursive_directory_iterator(vfxDir, ec); it != fs::recursive_directory_iterator(); it.increment(ec)) {
+                  if (ec) break;
+                  if (!it->is_regular_file(ec) || _wcsicmp(it->path().extension().c_str(), L".vfx") != 0) continue;
+                  std::string rel = "vfx/" + wtou8(fs::relative(it->path(), vfxDir, ec).generic_wstring());
+                  if (off(rel)) continue;
+                  vs.push_back({ it->path(), rel, m.name });
+              }
+              std::sort(vs.begin(), vs.end(), [](const AssetSrc& a, const AssetSrc& b){ return a.rel < b.rel; });
+              for (auto& v : vs) assetFiles.push_back(std::move(v)); } }
         const char* kLangSub[] = { "", "sc", "tc", "kr" };
         for (const char* Lc : kLangSub) {
             std::string lang = Lc;
@@ -457,6 +477,7 @@ RunResult Run(const Paths& paths, bool force) {
 
     std::string fpInput;
     fpInput += "OUTPUTS:ai,mod_chars,mod_chars_json\n";
+    fpInput += "SCHEMA:" + std::to_string(TblSchemaFingerprint()) + "\n";
     { fpInput += "LANGS:"; for (const auto& L : langs) { fpInput += L; fpInput += ","; } fpInput += "\n"; }
     for (const auto& m : manifest) {
         fpInput += "MOD:"; fpInput += m.name; fpInput += m.enabled ? "=1" : "=0";
@@ -488,7 +509,7 @@ RunResult Run(const Paths& paths, bool force) {
 
     { std::error_code ce;
       std::set<std::string> clearDirs = { "table", "table_sc", "table_tc", "table_kr",
-        "scene", "script", "script_sc", "script_tc", "script_kr", "asset" };
+        "scene", "script", "script_sc", "script_tc", "script_kr", "asset", "vfx" };
       for (const auto& a : assetFiles) {
           auto pos = a.rel.find('/');
           if (pos != std::string::npos) clearDirs.insert(a.rel.substr(0, pos));
@@ -546,30 +567,52 @@ RunResult Run(const Paths& paths, bool force) {
         log += "[modkit] merged scene/" + target + ".json (+" + std::to_string(mr.tblHooks.size()) + " lookpoint hooks)\n";
     }
 
-    struct TblAccum { std::string table; std::vector<nlohmann::json> addRows; std::vector<std::string> addMods; std::vector<tbl_merge::EditOp> edits; std::vector<nlohmann::json> cloneRows; std::set<std::string> mods; };
+    struct TblAccum { std::string table; std::vector<nlohmann::json> addRows; std::vector<std::string> addMods; std::vector<tbl_merge::EditOp> edits; std::vector<nlohmann::json> cloneRows; };
+    struct TblGroup { std::vector<TblAccum> subs; std::set<std::string> mods; };
+    auto addToGroup = [](TblGroup& g, TblAccum&& one) {
+        TblAccum* a = nullptr;
+        if (one.table.empty()) {
+            if (!g.subs.empty()) a = &g.subs[0];
+        } else {
+            for (auto& s : g.subs) if (s.table == one.table) { a = &s; break; }
+            if (!a) for (auto& s : g.subs) if (s.table.empty()) { s.table = one.table; a = &s; break; }
+        }
+        if (!a) { g.subs.push_back(std::move(one)); return; }
+        for (auto& x : one.addRows) a->addRows.push_back(std::move(x));
+        for (auto& x : one.addMods) a->addMods.push_back(std::move(x));
+        for (auto& x : one.edits) a->edits.push_back(std::move(x));
+        for (auto& x : one.cloneRows) a->cloneRows.push_back(std::move(x));
+    };
     report["tables"] = nlohmann::json::array();
     std::vector<nlohmann::json> charAdds;
     std::vector<std::string> charAddMods;
     std::vector<uint8_t> charNameTbl, charStatusTbl;
+    std::vector<nlohmann::json> itemAdds;
+    std::vector<std::string> itemAddMods;
+    std::vector<uint8_t> itemTbl;
 
     if (!allHooks.empty() || !tblDirFiles.empty()) {
         for (const std::string& L : langs) {
             const bool isPrimary = (L == primaryLang);
-            std::map<std::string, TblAccum> tblAcc;
+            std::map<std::string, TblGroup> tblAcc;
             for (const LpRow& h : allHooks) {
                 nlohmann::json row;
                 row["text1"] = h.text1; row["text2"] = h.text2; row["text3"] = h.text3; row["empty"] = h.empty;
                 row["arr1"] = h.arr1; row["uint1"] = h.uint1; row["arr2"] = h.arr2; row["uint2"] = h.uint2;
-                tblAcc["t_lookpoint"].addRows.push_back(std::move(row));
-                tblAcc["t_lookpoint"].addMods.push_back(std::string());
+                TblAccum one;
+                one.addRows.push_back(std::move(row));
+                one.addMods.push_back(std::string());
+                addToGroup(tblAcc["t_lookpoint"], std::move(one));
             }
             for (const auto& tf : tblDirFiles) {
                 if (!(tf.lang.empty() || tf.lang == L)) continue;
-                std::string stem = tf.path.stem().string();
+                const std::string stem = tblTargetOf(tf.path);
                 const std::string& modName = tf.mod;
-                TblAccum& a = tblAcc[stem];
-                parseTblFile(tf.path, a.table, a.addRows, a.edits, a.cloneRows, modName, tf.off, log, &a.addMods);
-                a.mods.insert(modName);
+                TblAccum one;
+                parseTblFile(tf.path, one.table, one.addRows, one.edits, one.cloneRows, modName, tf.off, log, &one.addMods);
+                TblGroup& g = tblAcc[stem];
+                g.mods.insert(modName);
+                addToGroup(g, std::move(one));
             }
             if (tblAcc.empty()) continue;
 
@@ -585,46 +628,76 @@ RunResult Run(const Paths& paths, bool force) {
             }
             for (auto& kv : tblAcc) {
                 const std::string& stem = kv.first;
-                std::vector<std::string> tmods(kv.second.mods.begin(), kv.second.mods.end());
+                const TblGroup& grp = kv.second;
+                std::vector<std::string> tmods(grp.mods.begin(), grp.mods.end());
                 std::vector<uint8_t> origTbl;
                 if (!pacTable.ReadEntry(entryPre + stem + ".tbl", origTbl)) {
                     ++r.failed; log += "[modkit] no pac entry " + entryPre + stem + ".tbl\n";
                     if (isPrimary) pushErr(stem + ".tbl", tmods, "pac 内无此表(表名/文件名错?)"); continue;
                 }
-                std::vector<uint8_t> outBytes; std::string e2;
+                std::vector<uint8_t> outBytes = origTbl;
                 std::vector<tbl_merge::TblConflict> conflicts;
-                bool okTbl;
-                if (!kv.second.cloneRows.empty()) {
-                    if (!kv.second.addRows.empty() || !kv.second.edits.empty()) {
-                        ++r.failed; log += "[modkit] tbl FAIL " + stem + ": clone_rows 不能与 add_rows/edit_rows 混用\n"; if (isPrimary) pushErr(stem + ".tbl", tmods, "clone_rows 不能与 add_rows/edit_rows 混用"); continue;
+                size_t nAdd = 0, nEdit = 0, nClone = 0;
+                std::string subLog;
+                bool okTbl = true;
+                for (const TblAccum& a : grp.subs) {
+                    const std::string what = grp.subs.size() > 1 ? stem + "(" + a.table + ")" : stem;
+                    std::vector<uint8_t> next; std::string e2;
+                    if (!a.cloneRows.empty()) {
+                        if (!a.addRows.empty() || !a.edits.empty()) {
+                            ++r.failed; log += "[modkit] tbl FAIL " + what + ": clone_rows 不能与 add_rows/edit_rows 混用\n"; if (isPrimary) pushErr(stem + ".tbl", tmods, "clone_rows 不能与 add_rows/edit_rows 混用"); okTbl = false; break;
+                        }
+                        if (!tbl_merge::CloneRowsPoolTable(outBytes, paths.schemasDir, "Sora1", a.table, a.cloneRows, next, e2)) {
+                            ++r.failed; log += "[modkit] tbl clone FAIL " + what + ": " + e2 + "\n"; if (isPrimary) pushErr(stem + ".tbl", tmods, e2); okTbl = false; break;
+                        }
+                    } else {
+                        if (tbl_merge::TblHasUnmodeledPool(outBytes, paths.schemasDir, "Sora1")) {
+                            ++r.failed; log += "[modkit] tbl FAIL " + what + ": 该表带数据池,add_rows/edit_rows 会损坏;请用 clone_rows 或 table\\ 整文件替换\n";
+                            if (isPrimary) pushErr(stem + ".tbl", tmods, "带数据池的表,请用 clone_rows 或 table\\ 整文件替换(add_rows/edit_rows 会损坏)"); okTbl = false; break;
+                        }
+                        if (!tbl_merge::ApplyTblPatch(outBytes, paths.schemasDir, "Sora1", a.table, a.addRows, a.edits, next, e2, &conflicts)) {
+                            ++r.failed; log += "[modkit] tbl FAIL " + what + ": " + e2 + "\n"; if (isPrimary) pushErr(stem + ".tbl", tmods, e2); okTbl = false; break;
+                        }
                     }
-                    okTbl = tbl_merge::CloneRowsPoolTable(origTbl, paths.schemasDir, "Sora1", kv.second.table, kv.second.cloneRows, outBytes, e2);
-                    if (!okTbl) { ++r.failed; log += "[modkit] tbl clone FAIL " + stem + ": " + e2 + "\n"; if (isPrimary) pushErr(stem + ".tbl", tmods, e2); continue; }
-                } else {
-                    if (tbl_merge::TblHasUnmodeledPool(origTbl, paths.schemasDir, "Sora1")) {
-                        ++r.failed; log += "[modkit] tbl FAIL " + stem + ": 该表带数据池,add_rows/edit_rows 会损坏;请用 clone_rows 或 table\\ 整文件替换\n";
-                        if (isPrimary) pushErr(stem + ".tbl", tmods, "带数据池的表,请用 clone_rows 或 table\\ 整文件替换(add_rows/edit_rows 会损坏)"); continue;
-                    }
-                    okTbl = tbl_merge::ApplyTblPatch(origTbl, paths.schemasDir, "Sora1", kv.second.table, kv.second.addRows, kv.second.edits, outBytes, e2, &conflicts);
-                    if (!okTbl) { ++r.failed; log += "[modkit] tbl FAIL " + stem + ": " + e2 + "\n"; if (isPrimary) pushErr(stem + ".tbl", tmods, e2); continue; }
+                    outBytes.swap(next);
+                    nAdd += a.addRows.size(); nEdit += a.edits.size(); nClone += a.cloneRows.size();
+                    if (grp.subs.size() > 1)
+                        subLog += (subLog.empty() ? " [" : ", ") + a.table + " +" + std::to_string(a.addRows.size()) + "/" + std::to_string(a.edits.size()) + "/" + std::to_string(a.cloneRows.size());
                 }
+                if (!okTbl) continue;
+                if (!subLog.empty()) subLog += "]";
                 if (writeAll(fs::path(paths.cacheDir) / outSub / (stem + ".tbl"), outBytes)) {
                     if (isPrimary) ++r.tbls;
-                    log += "[modkit] merged " + outSub + "/" + stem + ".tbl (+" + std::to_string(kv.second.addRows.size()) + " rows, " + std::to_string(kv.second.edits.size()) + " edits, " + std::to_string(kv.second.cloneRows.size()) + " clones)\n";
+                    log += "[modkit] merged " + outSub + "/" + stem + ".tbl (+" + std::to_string(nAdd) + " rows, " + std::to_string(nEdit) + " edits, " + std::to_string(nClone) + " clones)" + subLog + "\n";
                 } else { ++r.failed; log += "[modkit] write FAIL " + outSub + "/" + stem + "\n"; if (isPrimary) pushErr(stem + ".tbl", tmods, "写缓存失败"); continue; }
-                if (isPrimary && stem == "t_name" && !kv.second.addRows.empty()) {
-                    charAdds = kv.second.addRows; charAddMods = kv.second.addMods; charNameTbl = outBytes;
+                if (isPrimary && stem == "t_name") {
+                    for (const TblAccum& a : grp.subs) {
+                        if (a.addRows.empty()) continue;
+                        charAdds = a.addRows; charAddMods = a.addMods; charNameTbl = outBytes;
+                    }
                 }
                 if (isPrimary && stem == "t_status") charStatusTbl = outBytes;
+                if (isPrimary && stem == "t_item") {
+                    for (const TblAccum& a : grp.subs) {
+                        if (a.table != "ItemTableData" || a.addRows.empty()) continue;
+                        itemAdds = a.addRows; itemAddMods = a.addMods; itemTbl = outBytes;
+                    }
+                }
 
                 if (!isPrimary) continue;
                 nlohmann::json tj;
                 tj["table"] = stem;
                 tj["mods"] = nlohmann::json::array();
-                for (const auto& mname : kv.second.mods) tj["mods"].push_back(mname);
-                tj["addRows"] = (int)kv.second.addRows.size();
-                tj["editRows"] = (int)kv.second.edits.size();
-                tj["cloneRows"] = (int)kv.second.cloneRows.size();
+                for (const auto& mname : grp.mods) tj["mods"].push_back(mname);
+                tj["addRows"] = (int)nAdd;
+                tj["editRows"] = (int)nEdit;
+                tj["cloneRows"] = (int)nClone;
+                if (grp.subs.size() > 1) {
+                    tj["subTables"] = nlohmann::json::array();
+                    for (const TblAccum& a : grp.subs)
+                        tj["subTables"].push_back({ {"table", a.table}, {"addRows", (int)a.addRows.size()},
+                                                    {"editRows", (int)a.edits.size()}, {"cloneRows", (int)a.cloneRows.size()} });
+                }
                 tj["conflicts"] = nlohmann::json::array();
                 for (const auto& c : conflicts) {
                     ++r.conflicts;
@@ -719,15 +792,27 @@ RunResult Run(const Paths& paths, bool force) {
         static const CharKey kCharKeys[] = {
             { "player_control", true },
             { "opening_by_ai", false },
+            { "opening_scraft_by_player", false },
             { "brave_attack", false },
             { "sub_menu", false },
             { "hide_attack_in_crafts", true },
             { "hide_ai_only_crafts", true },
             { "camp_orbment", true },
             { "field_leader", false },
+            { "camp_equip", false },
+            { "break_stat_cap", false },
+            { "clone_arts", false },
+            { "party_support", false },
+            { "overdrive", false },
+        };
+        struct CharInt { const char* key; int64_t def, lo, hi; };
+        static const CharInt kCharInts[] = {
+            { "weapon_icon", 0, 0, 440 },
         };
         struct CharSet { bool v; std::string mod; };
         std::map<int64_t, std::map<std::string, CharSet>> sets;
+        struct CharIntSet { int64_t v; std::string mod; };
+        std::map<int64_t, std::map<std::string, CharIntSet>> isets;
         for (const auto& pf : modJsons) {
             const std::string& mod = pf.mod;
             auto bad = [&](const std::string& why) {
@@ -764,10 +849,30 @@ RunResult Run(const Paths& paths, bool force) {
                     continue;
                 }
                 std::map<std::string, CharSet>& got = sets[id];
+                std::map<std::string, CharIntSet>& igot = isets[id];
                 for (auto it = c.begin(); it != c.end(); ++it) {
                     if (it.key() == "character_id") continue;
                     const CharKey* ck = nullptr;
                     for (const auto& x : kCharKeys) if (it.key() == x.key) { ck = &x; break; }
+                    const CharInt* ci = nullptr;
+                    for (const auto& x : kCharInts) if (it.key() == x.key) { ci = &x; break; }
+                    if (ci != nullptr) {
+                        if (!it->is_number_integer()) { bad(who + " 的「" + it.key() + "」要写整数,没用上"); continue; }
+                        const int64_t v = it->get<int64_t>();
+                        if (v < ci->lo || v > ci->hi) {
+                            bad(who + " 的「" + it.key() + "」要在 " + std::to_string(ci->lo) + "~" + std::to_string(ci->hi) + " 之间(写的是 "
+                                + std::to_string(v) + "),没用上");
+                            continue;
+                        }
+                        const auto prev = igot.find(ci->key);
+                        if (prev != igot.end() && prev->second.v != v && prev->second.mod != mod) {
+                            ++r.conflicts;
+                            log += "[modkit] CONFLICT mod.json characters[" + std::to_string(id) + "]." + ci->key + ": "
+                                 + std::to_string(prev->second.v) + " (" + prev->second.mod + ") -> " + std::to_string(v) + " (" + mod + ") [winner]\n";
+                        }
+                        igot[ci->key] = { v, mod };
+                        continue;
+                    }
                     if (ck == nullptr) { bad(who + " 的「" + it.key() + "」不认识(拼错了?),没用上"); continue; }
                     if (!it->is_boolean()) { bad(who + " 的「" + it.key() + "」要写 true 或 false,没用上"); continue; }
                     const bool v = it->get<bool>();
@@ -801,11 +906,70 @@ RunResult Run(const Paths& paths, bool force) {
                 c[x.key] = v;
                 st[x.key] = v;
             }
+            const auto iit = isets.find(row.id);
+            for (const auto& x : kCharInts) {
+                int64_t v = x.def;
+                if (iit != isets.end()) {
+                    const auto f = iit->second.find(x.key);
+                    if (f != iit->second.end()) v = f->second.v;
+                }
+                c[x.key] = v;
+                st[x.key] = v;
+            }
             out["characters"].push_back(std::move(c));
             report["modChars"].push_back({ {"id", row.id}, {"slot", row.slot}, {"name", row.name}, {"face", row.face},
                                            {"level", row.level}, {"expCoef", row.expCoef}, {"mod", row.mod}, {"settings", st} });
         }
         writeText(fs::path(paths.cacheDir).parent_path() / "mod_chars.json",
+                  out.dump(2, ' ', false, nlohmann::json::error_handler_t::replace) + "\n");
+    }
+
+    {
+        nlohmann::json out;
+        out["version"] = 1;
+        out["fingerprint"] = fp;
+        out["items"] = nlohmann::json::array();
+        if (!itemAdds.empty() && !itemTbl.empty()) {
+            TblFileG itemF;
+            std::string e1;
+            const TblTableG* it = nullptr;
+            if (DecodeTblG(itemTbl, paths.schemasDir, "Sora1", itemF, e1))
+                for (const auto& t : itemF.tables) if (t.name == "ItemTableData") { it = &t; break; }
+            if (it == nullptr || it->rows.size() < itemAdds.size()) {
+                ++r.failed;
+                log += "[modkit] mod_items: 解 t_item 失败(" + e1 + "),MOD 新增道具清单没生成\n";
+                pushErr("MOD 新增道具", {}, "解 t_item 失败,MOD 新增道具清单没生成");
+            } else {
+                auto I = [](const TblRowG& row, const char* k) -> int64_t { const TblValue* v = row.find(k); return v ? v->i : 0; };
+                auto S = [](const TblRowG& row, const char* k) -> std::string { const TblValue* v = row.find(k); return v ? v->s : std::string(); };
+                const size_t n = it->rows.size(), first = n - itemAdds.size();
+                for (size_t j = 0; j < itemAdds.size(); ++j) {
+                    const TblRowG& row = it->rows[first + j];
+                    const int64_t id = I(row, "id");
+                    const std::string mod = j < itemAddMods.size() ? itemAddMods[j] : std::string();
+                    const std::string name = S(row, "name");
+                    if (itemAdds[j].value("id", static_cast<int64_t>(-1)) != id) {
+                        log += "[modkit] mod_items: t_item 表尾和 add_rows 对不上,后面的不再列\n";
+                        break;
+                    }
+                    const std::string who = "道具 " + std::to_string(id) + (name.empty() ? std::string() : "「" + name + "」");
+                    std::string why;
+                    if (id < 1 || id > 4999) why = "编号要在 1~4999(背包数量按编号存,只到 4999)";
+                    for (size_t k = 0; k < n && why.empty(); ++k)
+                        if (k != first + j && I(it->rows[k], "id") == id) why = "编号 " + std::to_string(id) + " 已被 t_item 另一行占用";
+                    if (!why.empty()) {
+                        ++r.failed;
+                        log += "[modkit] mod_items: " + who + " 没列入:" + why + "\n";
+                        pushErr(who, { mod }, why);
+                        continue;
+                    }
+                    out["items"].push_back({ {"id", id}, {"category", I(row, "category")}, {"subcategory", I(row, "subcategory")},
+                                             {"name", name}, {"icon", I(row, "item_icon")}, {"mod", mod} });
+                    log += "[modkit] mod_items: " + who + " <- " + mod + "\n";
+                }
+            }
+        }
+        writeText(fs::path(paths.cacheDir).parent_path() / "mod_items.json",
                   out.dump(2, ' ', false, nlohmann::json::error_handler_t::replace) + "\n");
     }
 
@@ -1041,8 +1205,21 @@ RunResult Run(const Paths& paths, bool force) {
         }
         for (const std::string& rel : order) {
             auto& provs = byRel[rel];
+            if (rel.rfind("vfx/", 0) == 0) {
+                std::vector<std::pair<std::string, fs::path>> good;
+                for (const auto& p : provs) {
+                    char head[4] = {};
+                    { std::ifstream f(p.second, std::ios::binary); f.read(head, 4); }
+                    if (std::memcmp(head, "JSON", 4) == 0) { good.push_back(p); continue; }
+                    ++r.failed;
+                    log += "[modkit] vfx REJECT " + rel + " <- " + p.first + "(开头不是 JSON)\n";
+                    pushErr("vfx \"" + rel + "\"", { p.first }, "不是特效文件(开头应为 JSON,即 Falcom 二进制 JSON),没有铺");
+                }
+                provs = std::move(good);
+                if (provs.empty()) continue;
+            }
             const auto& win = provs.back();
-            fs::path dst = fs::path(paths.cacheDir) / fs::path(rel);
+            fs::path dst = fs::path(paths.cacheDir) / (rel.rfind("vfx/", 0) == 0 ? fs::path(u8tow(rel)) : fs::path(rel));
             std::error_code ce; fs::create_directories(dst.parent_path(), ce);
             fs::copy_file(win.second, dst, fs::copy_options::overwrite_existing, ce);
             if (ce) { ++r.failed; log += "[modkit] asset copy FAIL " + rel + ": " + ce.message() + "\n"; pushErr("asset \"" + rel + "\"", { win.first }, "复制失败: " + ce.message()); continue; }

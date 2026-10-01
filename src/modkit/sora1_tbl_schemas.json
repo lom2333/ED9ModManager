@@ -36,7 +36,8 @@
  },
  "ActiveVoiceTableData": {
   "128": {
-   "id": "ulong",
+   "id": "uint",
+   "uint_04": "uint",
    "char_ids": "u16array",
    "empty1": "uint",
    "filename": "toffset",
@@ -51,7 +52,8 @@
    "array5": "u32array",
    "empty5": "uint",
    "dialogue": "toffset",
-   "unknown": "long"
+   "uint_78": "uint",
+   "float_7C": "float"
   }
  },
  "AniParam": {
@@ -130,25 +132,26 @@
   "56": {
    "map_name": "toffset",
    "object_name": "toffset",
-   "break_effect_ref": "ulong",
-   "drop_table_ref": "ulong",
+   "break_effect_ref": "toffset",
+   "drop_table_ref": "toffset",
    "drop_flags": "uint",
    "durability": "ushort",
    "lottery_group": "ushort",
-   "se_ref": "ulong",
-   "vfx_ref": "ulong"
+   "se_ref": "toffset",
+   "vfx_ref": "toffset"
   },
   "64": {
    "map_name": "toffset",
    "object_name": "toffset",
-   "break_effect_ref": "ulong",
-   "drop_table_ref": "ulong",
+   "break_effect_ref": "toffset",
+   "drop_table_ref": "toffset",
    "drop_flags": "uint",
    "durability": "ushort",
    "lottery_group": "ushort",
-   "NEW7_0": "toffset",
-   "se_ref": "ulong",
-   "vfx_ref": "ulong"
+   "se_ref": "toffset",
+   "vfx_ref": "toffset",
+   "uint_38": "uint",
+   "uint_3C": "uint"
   }
  },
  "WeedingTableData": {
@@ -258,8 +261,9 @@
    "hp_or_unknown_multi_2": "uint",
    "enemy_spd_multiplier": "uint",
    "int1": "uint",
-   "NEW7_0": "ulong",
-   "NEW7_1": "uint"
+   "uint_1C": "uint",
+   "uint_20": "uint",
+   "uint_24": "uint"
   }
  },
  "BattleEnemyLevelStatusAdjust": {
@@ -329,11 +333,9 @@
    "face_distance": "float",
    "popup_offset_x": "float",
    "popup_offset_y": "float",
-   "byte_28": "ubyte",
-   "byte_29": "ubyte",
-   "byte_2A": "ubyte",
-   "byte_2B": "ubyte",
-   "portrait_id": "uint",
+   "ushort_28": "ushort",
+   "story_flag": "ushort",
+   "menu_order": "uint",
    "loading_name": "toffset",
    "loading_scale": "float",
    "special_value": "ushort",
@@ -350,11 +352,10 @@
    "face_distance": "float",
    "popup_offset_x": "float",
    "popup_offset_y": "float",
-   "byte_28": "ubyte",
-   "byte_29": "ubyte",
-   "byte_2A": "ubyte",
-   "byte_2B": "ubyte",
-   "portrait_id": "uint",
+   "ushort_28": "ushort",
+   "ushort_2A": "ushort",
+   "story_flag": "ushort",
+   "menu_order": "ushort",
    "loading_scale": "float",
    "special_value": "ushort",
    "reserved_3E": "ushort"
@@ -373,7 +374,7 @@
    "portrait_id": "uint",
    "flags": "uint",
    "base_chr_code": "toffset",
-   "variant_ref": "ulong",
+   "variant_ref": "toffset",
    "offset_x": "float",
    "offset_y": "float",
    "offset_z": "float",
@@ -383,10 +384,11 @@
    "portrait_id": "uint",
    "flags": "uint",
    "base_chr_code": "toffset",
-   "variant_ref": "ulong",
+   "variant_ref": "toffset",
    "offset_x": "float",
    "offset_y": "float",
-   "NEW6_0": "ulong",
+   "float_20": "float",
+   "float_24": "float",
    "offset_z": "float",
    "scale": "float"
   }
@@ -435,8 +437,8 @@
  "ConstantValue": {
   "12": {
    "id": "uint",
-   "value1": "uint",
-   "value2": "uint"
+   "value1": "int",
+   "value2": "int"
   }
  },
  "CostumeParam": {
@@ -501,12 +503,10 @@
   "56": {
    "map_name": "toffset",
    "eventbox_name": "toffset",
-   "enter_ref": "ulong",
-   "leave_ref": "ulong",
-   "box_type": "uint",
+   "str_10": "toffset",
+   "flags_a": "u16array",
    "flags_24": "uint",
-   "script_ref": "ulong",
-   "trigger_kind": "uint",
+   "flags_b": "u16array",
    "reserved_34": "uint"
   }
  },
@@ -652,7 +652,7 @@
  },
  "FieldItemTableData": {
   "32": {
-   "unknown_id1": "ulong",
+   "map_name": "toffset",
    "x_coordinate": "float",
    "y_coordinate": "float",
    "z_coordinate": "float",
@@ -1041,30 +1041,7 @@
    "uint1": "uint",
    "ushort2": "ushort",
    "id": "toffset",
-   "ulong1": "ulong",
-   "ulong2": "ulong",
-   "ulong3": "ulong",
-   "ulong4": "ulong",
-   "ulong5": "ulong",
-   "ulong6": "ulong",
-   "ulong7": "ulong",
-   "ulong8": "ulong",
-   "ulong9": "ulong",
-   "ulong10": "ulong",
-   "ulong11": "ulong",
-   "ulong12": "ulong",
-   "ulong13": "ulong",
-   "ulong14": "ulong",
-   "ulong15": "ulong",
-   "ulong16": "ulong",
-   "ulong17": "ulong",
-   "ulong18": "ulong",
-   "desc": "toffset"
-  },
-  "224": {
-   "uint_0": "uint",
-   "uint_4": "uint",
-   "array_8": "u8array",
+   "uint_10": "uint",
    "uint_14": "uint",
    "uint_18": "uint",
    "uint_1C": "uint",
@@ -1094,43 +1071,22 @@
    "uint_7C": "uint",
    "uint_80": "uint",
    "uint_84": "uint",
-   "uint_88": "uint",
-   "uint_8C": "uint",
-   "uint_90": "uint",
-   "uint_94": "uint",
+   "float_88": "float",
+   "float_8C": "float",
+   "float_90": "float",
+   "float_94": "float",
    "float_98": "float",
-   "uint_9C": "uint",
-   "float_A0": "float",
-   "float_A4": "float",
-   "uint_A8": "uint",
-   "uint_AC": "uint",
-   "uint_B0": "uint",
-   "uint_B4": "uint",
-   "float_B8": "float",
-   "uint_BC": "uint",
-   "float_C0": "float",
-   "float_C4": "float",
-   "float_C8": "float",
-   "uint_CC": "uint",
-   "text_D0": "toffset",
-   "uint_D8": "uint",
-   "uint_DC": "uint"
-  }
- },
- "FishingConstant": {
-  "24": {
-   "ulong1": "ulong",
-   "ulong2": "ulong",
-   "ulong3": "ulong"
+   "float_9C": "float",
+   "desc": "toffset"
   },
-  "96": {
-   "uint_0": "uint",
+  "224": {
+   "ushort_0": "ushort",
+   "ushort_2": "ushort",
    "uint_4": "uint",
-   "uint_8": "uint",
-   "uint_C": "uint",
+   "text_8": "toffset",
    "uint_10": "uint",
    "uint_14": "uint",
-   "float_18": "float",
+   "uint_18": "uint",
    "uint_1C": "uint",
    "uint_20": "uint",
    "uint_24": "uint",
@@ -1140,10 +1096,77 @@
    "uint_34": "uint",
    "uint_38": "uint",
    "uint_3C": "uint",
-   "float_40": "float",
+   "uint_40": "uint",
    "uint_44": "uint",
    "uint_48": "uint",
    "uint_4C": "uint",
+   "uint_50": "uint",
+   "uint_54": "uint",
+   "uint_58": "uint",
+   "uint_5C": "uint",
+   "uint_60": "uint",
+   "uint_64": "uint",
+   "uint_68": "uint",
+   "uint_6C": "uint",
+   "uint_70": "uint",
+   "uint_74": "uint",
+   "uint_78": "uint",
+   "uint_7C": "uint",
+   "uint_80": "uint",
+   "uint_84": "uint",
+   "float_88": "float",
+   "float_8C": "float",
+   "float_90": "float",
+   "float_94": "float",
+   "float_98": "float",
+   "float_9C": "float",
+   "float_A0": "float",
+   "float_A4": "float",
+   "float_A8": "float",
+   "float_AC": "float",
+   "float_B0": "float",
+   "float_B4": "float",
+   "float_B8": "float",
+   "float_BC": "float",
+   "float_C0": "float",
+   "float_C4": "float",
+   "float_C8": "float",
+   "float_CC": "float",
+   "text_D0": "toffset",
+   "uint_D8": "uint",
+   "uint_DC": "uint"
+  }
+ },
+ "FishingConstant": {
+  "24": {
+   "float_0": "float",
+   "float_4": "float",
+   "float_8": "float",
+   "float_C": "float",
+   "float_10": "float",
+   "float_14": "float"
+  },
+  "96": {
+   "uint_0": "uint",
+   "float_4": "float",
+   "float_8": "float",
+   "float_C": "float",
+   "float_10": "float",
+   "float_14": "float",
+   "float_18": "float",
+   "float_1C": "float",
+   "float_20": "float",
+   "float_24": "float",
+   "float_28": "float",
+   "float_2C": "float",
+   "float_30": "float",
+   "float_34": "float",
+   "float_38": "float",
+   "float_3C": "float",
+   "float_40": "float",
+   "float_44": "float",
+   "float_48": "float",
+   "float_4C": "float",
    "uint_50": "uint",
    "uint_54": "uint",
    "text_58": "toffset"
@@ -1189,9 +1212,8 @@
  "FishingCastInfo": {
   "12": {
    "uint1": "uint",
-   "ushort1": "ushort",
-   "uint2": "uint",
-   "ushort2": "ushort"
+   "float_4": "float",
+   "float_8": "float"
   }
  },
  "PokerMessage": {
@@ -1262,7 +1284,8 @@
    "move_type": "toffset",
    "string9": "toffset",
    "long5": "ulong",
-   "long6": "ulong",
+   "long6_lo": "uint",
+   "long6_hi": "uint",
    "stringA": "toffset"
   },
   "176": {
@@ -1290,7 +1313,8 @@
    "string9": "toffset",
    "array_90": "u32array",
    "uint_9C": "uint",
-   "long6": "ulong",
+   "long6_lo": "uint",
+   "long6_hi": "uint",
    "stringA": "toffset"
   }
  },
@@ -1336,7 +1360,7 @@
    "value": "long"
   },
   "8": {
-   "value": "long"
+   "name": "toffset"
   }
  },
  "NoteBattleCategory": {
@@ -1375,8 +1399,8 @@
    "ref_name": "toffset",
    "int1": "uint",
    "int2": "uint",
-   "NEW3_0": "ulong",
-   "region": "long",
+   "array_10": "u16array",
+   "region": "uint",
    "code": "toffset",
    "desc": "toffset"
   }
@@ -1388,9 +1412,7 @@
   "24": {
    "uint_0": "uint",
    "uint_4": "uint",
-   "uint_8": "uint",
-   "uint_C": "uint",
-   "uint_10": "uint",
+   "array_8": "u16array",
    "uint_14": "uint"
   }
  },
@@ -1432,12 +1454,12 @@
    "param_44": "uint",
    "float_48": "float",
    "float_4C": "float",
-   "param_50": "uint",
+   "param_50": "float",
    "param_54": "uint",
    "tagged_ref_58": "ulong",
    "resource_ref_60": "ulong",
    "resource_ref_68": "ulong",
-   "param_70": "uint",
+   "param_70": "int",
    "param_74": "uint",
    "resource_ref_78": "ulong",
    "resource_ref_80": "ulong",
@@ -1499,21 +1521,37 @@
   },
   "64": {
    "uint_0": "uint",
-   "uint_4": "uint",
-   "uint_8": "uint",
-   "uint_C": "uint",
-   "uint_10": "uint",
-   "uint_14": "uint",
-   "uint_18": "uint",
-   "uint_1C": "uint",
-   "uint_20": "uint",
-   "uint_24": "uint",
-   "uint_28": "uint",
-   "uint_2C": "uint",
-   "uint_30": "uint",
-   "uint_34": "uint",
-   "uint_38": "uint",
-   "uint_3C": "uint"
+   "line_id": "ubyte",
+   "slot_id": "ubyte",
+   "elem_lock": "ushort",
+   "ushort_8": "ushort",
+   "ushort_A": "ushort",
+   "ushort_C": "ushort",
+   "ushort_E": "ushort",
+   "ushort_10": "ushort",
+   "ushort_12": "ushort",
+   "ushort_14": "ushort",
+   "ushort_16": "ushort",
+   "ushort_18": "ushort",
+   "ushort_1A": "ushort",
+   "ushort_1C": "ushort",
+   "ushort_1E": "ushort",
+   "ushort_20": "ushort",
+   "ushort_22": "ushort",
+   "ushort_24": "ushort",
+   "ushort_26": "ushort",
+   "ushort_28": "ushort",
+   "ushort_2A": "ushort",
+   "ushort_2C": "ushort",
+   "ushort_2E": "ushort",
+   "ushort_30": "ushort",
+   "ushort_32": "ushort",
+   "ushort_34": "ushort",
+   "ushort_36": "ushort",
+   "ushort_38": "ushort",
+   "ushort_3A": "ushort",
+   "ushort_3C": "ushort",
+   "ushort_3E": "ushort"
   }
  },
  "QuartzParam": {
@@ -1530,8 +1568,14 @@
    "space_cost": "ushort",
    "mirage_cost": "ushort",
    "element_value": "ushort",
-   "flags_20": "uint",
-   "flags_24": "uint"
+   "earth_pt": "ubyte",
+   "water_pt": "ubyte",
+   "fire_pt": "ubyte",
+   "wind_pt": "ubyte",
+   "time_pt": "ubyte",
+   "space_pt": "ubyte",
+   "mirage_pt": "ubyte",
+   "pad_27": "ubyte"
   }
  },
  "ArtsParam": {
@@ -1541,7 +1585,8 @@
    "byte_05": "ubyte",
    "byte_06": "ubyte",
    "flags_07": "ubyte",
-   "value_08": "ushort",
+   "byte_08": "ubyte",
+   "byte_09": "ubyte",
    "value_0A": "ushort",
    "flags_0C": "uint"
   }
@@ -1649,22 +1694,14 @@
    "file_name": "toffset",
    "int3": "int",
    "int4": "int",
-   "byte1": "ubyte",
-   "byte2": "ubyte",
-   "byte3": "ubyte",
-   "byte4": "ubyte",
-   "byte5": "ubyte",
-   "byte6": "ubyte",
-   "byte7": "ubyte",
-   "byte8": "ubyte",
-   "byte9": "ubyte",
-   "byte10": "ubyte",
-   "byte11": "ubyte",
-   "byte12": "ubyte",
-   "byte13": "ubyte",
-   "byte14": "ubyte",
-   "byte15": "ubyte",
-   "byte16": "ubyte",
+   "ushort_30": "ushort",
+   "ushort_32": "ushort",
+   "ushort_34": "ushort",
+   "ushort_36": "ushort",
+   "ushort_38": "ushort",
+   "ushort_3A": "ushort",
+   "ushort_3C": "ushort",
+   "ushort_3E": "ushort",
    "int5": "int",
    "int6": "int",
    "short2": "ushort",
@@ -1689,10 +1726,10 @@
    "txt_id": "int",
    "empty1": "short",
    "quest_description": "toffset",
-   "long1": "long",
-   "NEW5_0": "ulong",
-   "NEW5_1": "ulong",
-   "NEW5_2": "ulong",
+   "array_10": "u16array",
+   "uint_1C": "uint",
+   "array_20": "u16array",
+   "uint_2C": "uint",
    "unk_txt": "toffset"
   }
  },
@@ -1724,7 +1761,7 @@
  },
  "SceneCommonSetting": {
   "28": {
-   "setting_id": "uint",
+   "float_00": "float",
    "param_04": "float",
    "float_08": "float",
    "param_0C": "float",
@@ -1854,15 +1891,15 @@
   "72": {
    "chr_id": "int",
    "int1": "int",
-   "NEW2_0": "toffset",
    "animation": "toffset",
+   "text_10": "toffset",
    "text1": "toffset",
    "float1": "float",
    "float2": "float",
    "float3": "float",
    "float4": "float",
    "code": "toffset",
-   "empty1": "int",
+   "float_38": "float",
    "float5": "float",
    "empty2": "long"
   }
@@ -1921,10 +1958,8 @@
    "float25": "float",
    "float26": "float",
    "float27": "float",
-   "short3": "ushort",
-   "short4": "ushort",
-   "short5": "ushort",
-   "short6": "ushort",
+   "float_C0": "float",
+   "float_C4": "float",
    "float28": "float",
    "float29": "float",
    "int5": "uint",
@@ -1938,7 +1973,7 @@
    "hp_growth": "float",
    "ep_base": "uint",
    "cp_base": "uint",
-   "cp_growth": "float",
+   "uint_FC": "uint",
    "str_base": "uint",
    "str_growth": "float",
    "def_base": "uint",
@@ -1974,13 +2009,13 @@
    "statdown_efficacy": "ubyte",
    "stun_efficacy": "ubyte",
    "delay_efficacy": "ushort",
-   "earth_efficacy": "ushort",
-   "water_efficacy": "ushort",
-   "fire_efficacy": "ushort",
-   "wind_efficacy": "ushort",
-   "time_efficacy": "ushort",
-   "space_efficacy": "ushort",
-   "mirage_efficacy": "ushort",
+   "earth_efficacy": "short",
+   "water_efficacy": "short",
+   "fire_efficacy": "short",
+   "wind_efficacy": "short",
+   "time_efficacy": "short",
+   "space_efficacy": "short",
+   "mirage_efficacy": "short",
    "earth_sepith": "ubyte",
    "water_sepith": "ubyte",
    "fire_sepith": "ubyte",
@@ -1989,7 +2024,14 @@
    "space_sepith": "ubyte",
    "mirage_sepith": "ubyte",
    "sepith_mass": "ubyte",
-   "long_for_ally": "long",
+   "long_for_ally_0": "ubyte",
+   "long_for_ally_1": "ubyte",
+   "long_for_ally_2": "ubyte",
+   "long_for_ally_3": "ubyte",
+   "long_for_ally_4": "ubyte",
+   "long_for_ally_5": "ubyte",
+   "long_for_ally_6": "ubyte",
+   "long_for_ally_7": "ubyte",
    "item_drop_1": "uint",
    "item_drop_1_min": "ubyte",
    "item_drop_1_max": "ubyte",
@@ -2016,8 +2058,9 @@
    "float1": "float",
    "float2": "float",
    "float3": "float",
-   "NEW13_0": "ulong",
+   "float_58": "float",
    "float4": "float",
+   "float_60": "float",
    "float5": "float",
    "float6": "float",
    "float7": "float",
@@ -2040,10 +2083,8 @@
    "float25": "float",
    "float26": "float",
    "float27": "float",
-   "short3": "ushort",
-   "short4": "ushort",
-   "short5": "ushort",
-   "short6": "ushort",
+   "float_C0": "float",
+   "float_C4": "float",
    "float28": "float",
    "float29": "float",
    "int5": "uint",
@@ -2057,7 +2098,7 @@
    "hp_growth": "float",
    "ep_base": "uint",
    "cp_base": "uint",
-   "cp_growth": "float",
+   "uint_FC": "uint",
    "str_base": "uint",
    "str_growth": "float",
    "def_base": "uint",
@@ -2093,13 +2134,13 @@
    "statdown_efficacy": "ubyte",
    "stun_efficacy": "ubyte",
    "delay_efficacy": "ushort",
-   "earth_efficacy": "ushort",
-   "water_efficacy": "ushort",
-   "fire_efficacy": "ushort",
-   "wind_efficacy": "ushort",
-   "time_efficacy": "ushort",
-   "space_efficacy": "ushort",
-   "mirage_efficacy": "ushort",
+   "earth_efficacy": "short",
+   "water_efficacy": "short",
+   "fire_efficacy": "short",
+   "wind_efficacy": "short",
+   "time_efficacy": "short",
+   "space_efficacy": "short",
+   "mirage_efficacy": "short",
    "earth_sepith": "ubyte",
    "water_sepith": "ubyte",
    "fire_sepith": "ubyte",
@@ -2108,7 +2149,14 @@
    "space_sepith": "ubyte",
    "mirage_sepith": "ubyte",
    "sepith_mass": "ubyte",
-   "long_for_ally": "long",
+   "long_for_ally_0": "ubyte",
+   "long_for_ally_1": "ubyte",
+   "long_for_ally_2": "ubyte",
+   "long_for_ally_3": "ubyte",
+   "long_for_ally_4": "ubyte",
+   "long_for_ally_5": "ubyte",
+   "long_for_ally_6": "ubyte",
+   "long_for_ally_7": "ubyte",
    "item_drop_1": "uint",
    "item_drop_1_min": "ubyte",
    "item_drop_1_max": "ubyte",
@@ -2183,17 +2231,11 @@
    "uint_3C": "uint",
    "uint_40": "uint",
    "uint_44": "uint",
-   "uint_48": "uint",
-   "uint_4C": "uint",
-   "uint_50": "uint",
+   "array_48": "u16array",
    "uint_54": "uint",
-   "uint_58": "uint",
-   "uint_5C": "uint",
-   "uint_60": "uint",
+   "array_58": "u16array",
    "uint_64": "uint",
-   "uint_68": "uint",
-   "uint_6C": "uint",
-   "uint_70": "uint",
+   "array_68": "u16array",
    "uint_74": "uint"
   }
  },
@@ -2285,20 +2327,20 @@
    "effect4_p1": "uint",
    "effect4_p2": "uint",
    "float_7C": "float",
-   "stat_hp": "uint",
-   "stat_ep": "uint",
-   "stat_str": "uint",
-   "stat_def": "uint",
-   "stat_ats": "uint",
-   "stat_adf": "uint",
-   "stat_x98": "uint",
-   "stat_x9C": "uint",
-   "stat_xA0": "uint",
-   "stat_xA4": "uint",
-   "stat_xA8": "uint",
-   "stat_xAC": "uint",
+   "stat_hp": "int",
+   "stat_ep": "int",
+   "stat_str": "int",
+   "stat_def": "int",
+   "stat_ats": "int",
+   "stat_adf": "int",
+   "stat_x98": "int",
+   "stat_x9C": "int",
+   "stat_xA0": "int",
+   "stat_xA4": "int",
+   "stat_xA8": "int",
+   "stat_xAC": "int",
    "stat_spd": "int",
-   "stat_mov": "uint",
+   "stat_mov": "int",
    "max_quantity": "uint",
    "price": "uint",
    "text_C0": "toffset",
@@ -2344,24 +2386,25 @@
    "effect4_val": "uint",
    "effect4_p1": "uint",
    "effect4_p2": "uint",
+   "float_8C": "float",
    "float_7C": "float",
-   "stat_hp": "uint",
-   "stat_ep": "uint",
-   "stat_str": "uint",
-   "stat_def": "uint",
-   "stat_ats": "uint",
-   "stat_adf": "uint",
-   "stat_x98": "uint",
-   "stat_x9C": "uint",
-   "stat_xA0": "uint",
-   "stat_xA4": "uint",
-   "stat_xA8": "uint",
-   "stat_xAC": "uint",
+   "stat_hp": "int",
+   "stat_ep": "int",
+   "stat_str": "int",
+   "stat_def": "int",
+   "stat_ats": "int",
+   "stat_adf": "int",
+   "stat_x98": "int",
+   "stat_x9C": "int",
+   "stat_xA0": "int",
+   "stat_xA4": "int",
+   "stat_xA8": "int",
+   "stat_xAC": "int",
    "stat_spd": "int",
-   "stat_mov": "uint",
+   "stat_mov": "int",
    "max_quantity": "uint",
    "price": "uint",
-   "long_D0": "ulong",
+   "uint_D4": "uint",
    "text_C0": "toffset",
    "name": "toffset",
    "desc": "toffset",
@@ -2404,9 +2447,12 @@
    "eff4_p1": "uint",
    "eff4_p2": "uint",
    "cast_time": "float",
-   "uint_84": "uint",
-   "ep_cost": "uint",
-   "uint_8C": "uint",
+   "ushort_84": "ushort",
+   "ushort_86": "ushort",
+   "cost": "ushort",
+   "learn_level": "short",
+   "ushort_8C": "ushort",
+   "ushort_8E": "ushort",
    "anim_name": "toffset",
    "name": "toffset",
    "text_A0": "toffset",
@@ -2458,15 +2504,12 @@
   "440": {
    "map_id": "toffset",
    "script_name": "toffset",
-   "uint_10": "uint",
+   "ushort_10": "ushort",
+   "ushort_12": "ushort",
    "uint_14": "uint",
-   "uint_18": "uint",
-   "uint_1C": "uint",
-   "uint_20": "uint",
+   "array_18": "u16array",
    "uint_24": "uint",
-   "uint_28": "uint",
-   "uint_2C": "uint",
-   "uint_30": "uint",
+   "array_28": "u16array",
    "uint_34": "uint",
    "uint_38": "uint",
    "uint_3C": "uint",
@@ -2568,15 +2611,12 @@
   "184": {
    "text_0": "toffset",
    "text_8": "toffset",
-   "uint_10": "uint",
+   "ushort_10": "ushort",
+   "ushort_12": "ushort",
    "uint_14": "uint",
-   "uint_18": "uint",
-   "uint_1C": "uint",
-   "uint_20": "uint",
+   "array_18": "u16array",
    "uint_24": "uint",
-   "uint_28": "uint",
-   "uint_2C": "uint",
-   "uint_30": "uint",
+   "array_28": "u16array",
    "uint_34": "uint",
    "uint_38": "uint",
    "uint_3C": "uint",
@@ -2646,9 +2686,12 @@
  },
  "BlackJackInfo": {
   "12": {
-   "uint_0": "uint",
-   "uint_4": "uint",
-   "uint_8": "uint"
+   "ushort_0": "ushort",
+   "ushort_2": "ushort",
+   "ushort_4": "ushort",
+   "ushort_6": "ushort",
+   "ushort_8": "ushort",
+   "ushort_A": "ushort"
   }
  },
  "BlackJackRollRate": {
@@ -2658,13 +2701,13 @@
    "text_8": "toffset",
    "text_10": "toffset",
    "text_18": "toffset",
-   "uint_20": "uint",
-   "uint_24": "uint",
-   "uint_28": "uint",
-   "uint_2C": "uint",
-   "uint_30": "uint",
-   "uint_34": "uint",
-   "uint_38": "uint",
+   "int_20": "int",
+   "int_24": "int",
+   "int_28": "int",
+   "int_2C": "int",
+   "int_30": "int",
+   "int_34": "int",
+   "int_38": "int",
    "uint_3C": "uint",
    "uint_40": "uint",
    "uint_44": "uint",
@@ -2688,8 +2731,7 @@
   "24": {
    "uint_0": "uint",
    "uint_4": "uint",
-   "uint_8": "uint",
-   "uint_C": "uint",
+   "text_8": "toffset",
    "uint_10": "uint",
    "uint_14": "uint"
   }
@@ -2734,7 +2776,7 @@
  "MapJumpChrIcon": {
   "12": {
    "uint_0": "uint",
-   "uint_4": "uint",
+   "float_4": "float",
    "uint_8": "uint"
   }
  },
@@ -2748,15 +2790,15 @@
   "32": {
    "uint_0": "uint",
    "uint_4": "uint",
-   "array_8": "u8array",
-   "uint_14": "uint",
+   "text_8": "toffset",
+   "text_10": "toffset",
    "text_18": "toffset"
   }
  },
  "NoteMainPartnerInfo": {
   "24": {
-   "array_0": "u8array",
-   "uint_C": "uint",
+   "text_0": "toffset",
+   "text_8": "toffset",
    "uint_10": "uint",
    "uint_14": "uint"
   }
@@ -2783,9 +2825,12 @@
  },
  "PokerInfo": {
   "12": {
-   "uint_0": "uint",
-   "uint_4": "uint",
-   "uint_8": "uint"
+   "ushort_0": "ushort",
+   "ushort_2": "ushort",
+   "ushort_4": "ushort",
+   "ushort_6": "ushort",
+   "ushort_8": "ushort",
+   "ushort_A": "ushort"
   }
  },
  "PokerRollRate": {
@@ -2794,7 +2839,8 @@
    "uint_4": "uint",
    "text_8": "toffset",
    "text_10": "toffset",
-   "array_18": "u32array",
+   "text_18": "toffset",
+   "uint_20": "uint",
    "uint_24": "uint",
    "uint_28": "uint",
    "uint_2C": "uint",
@@ -2824,8 +2870,7 @@
   "24": {
    "uint_0": "uint",
    "uint_4": "uint",
-   "uint_8": "uint",
-   "uint_C": "uint",
+   "text_8": "toffset",
    "uint_10": "uint",
    "uint_14": "uint"
   }
@@ -2849,7 +2894,8 @@
    "uint_0": "uint",
    "uint_4": "uint",
    "text_8": "toffset",
-   "array_10": "u32array",
+   "text_10": "toffset",
+   "uint_18": "uint",
    "uint_1C": "uint",
    "uint_20": "uint",
    "uint_24": "uint"
@@ -2857,7 +2903,7 @@
  },
  "RouletteCheat": {
   "24": {
-   "uint_0": "uint",
+   "int_0": "int",
    "uint_4": "uint",
    "uint_8": "uint",
    "uint_C": "uint",
@@ -2894,7 +2940,8 @@
   "24": {
    "uint_0": "uint",
    "uint_4": "uint",
-   "array_8": "u32array",
+   "text_8": "toffset",
+   "uint_10": "uint",
    "uint_14": "uint"
   }
  },
@@ -2937,7 +2984,7 @@
    "text_8": "toffset",
    "uint_10": "uint",
    "uint_14": "uint",
-   "uint_18": "uint",
+   "int_18": "int",
    "uint_1C": "uint",
    "uint_20": "uint",
    "uint_24": "uint",
@@ -2949,7 +2996,8 @@
   "32": {
    "uint_0": "uint",
    "uint_4": "uint",
-   "array_8": "u32array",
+   "text_8": "toffset",
+   "uint_10": "uint",
    "uint_14": "uint",
    "uint_18": "uint",
    "uint_1C": "uint"
@@ -2957,7 +3005,8 @@
  },
  "SlotReelPattern": {
   "6": {
-   "uint_0": "uint",
+   "ushort_0": "ushort",
+   "ushort_2": "ushort",
    "ushort_4": "ushort"
   }
  },
@@ -2969,8 +3018,10 @@
  },
  "SlotRoles": {
   "12": {
-   "uint_0": "uint",
-   "uint_4": "uint",
+   "ushort_0": "ushort",
+   "ushort_2": "ushort",
+   "ushort_4": "ushort",
+   "ushort_6": "ushort",
    "uint_8": "uint"
   }
  },
@@ -2983,13 +3034,13 @@
  "SlotTBoxInfo": {
   "52": {
    "uint_0": "uint",
-   "uint_4": "uint",
+   "int_4": "int",
    "uint_8": "uint",
-   "uint_C": "uint",
-   "uint_10": "uint",
-   "uint_14": "uint",
-   "uint_18": "uint",
-   "uint_1C": "uint",
+   "int_C": "int",
+   "int_10": "int",
+   "int_14": "int",
+   "int_18": "int",
+   "int_1C": "int",
    "uint_20": "uint",
    "uint_24": "uint",
    "uint_28": "uint",
@@ -3004,21 +3055,13 @@
    "text_8": "toffset",
    "uint_10": "uint",
    "uint_14": "uint",
-   "uint_18": "uint",
-   "uint_1C": "uint",
-   "uint_20": "uint",
+   "array_18": "u16array",
    "uint_24": "uint",
-   "uint_28": "uint",
-   "uint_2C": "uint",
-   "uint_30": "uint",
+   "array_28": "u16array",
    "uint_34": "uint",
-   "uint_38": "uint",
-   "uint_3C": "uint",
-   "uint_40": "uint",
+   "array_38": "u16array",
    "uint_44": "uint",
-   "uint_48": "uint",
-   "uint_4C": "uint",
-   "uint_50": "uint",
+   "array_48": "u16array",
    "uint_54": "uint"
   }
  },
@@ -3467,6 +3510,1346 @@
   },
   "ViewerWeaponList": {
    "24": "sora_2nd"
+  }
+ },
+ "__legacy": {
+  "ItemTableData": {
+   "256": [
+    {
+     "id": "uint",
+     "character_restriction": "uint",
+     "array_08": "u32array",
+     "empty_14": "uint",
+     "text_08": "toffset",
+     "text_10": "toffset",
+     "category": "ubyte",
+     "subcategory": "ubyte",
+     "item_icon": "ushort",
+     "effect_icon": "ushort",
+     "element": "ushort",
+     "flags": "uint",
+     "float_24": "float",
+     "float_28": "float",
+     "effect0_id": "uint",
+     "effect0_val": "uint",
+     "effect0_p1": "uint",
+     "effect0_p2": "uint",
+     "effect1_id": "uint",
+     "effect1_val": "uint",
+     "effect1_p1": "uint",
+     "effect1_p2": "uint",
+     "effect2_id": "uint",
+     "effect2_val": "uint",
+     "effect2_p1": "uint",
+     "effect2_p2": "uint",
+     "effect3_id": "uint",
+     "effect3_val": "uint",
+     "effect3_p1": "uint",
+     "effect3_p2": "uint",
+     "effect4_id": "uint",
+     "effect4_val": "uint",
+     "effect4_p1": "uint",
+     "effect4_p2": "uint",
+     "float_7C": "float",
+     "stat_hp": "uint",
+     "stat_ep": "uint",
+     "stat_str": "uint",
+     "stat_def": "uint",
+     "stat_ats": "uint",
+     "stat_adf": "uint",
+     "stat_x98": "uint",
+     "stat_x9C": "uint",
+     "stat_xA0": "uint",
+     "stat_xA4": "uint",
+     "stat_xA8": "uint",
+     "stat_xAC": "uint",
+     "stat_spd": "int",
+     "stat_mov": "uint",
+     "max_quantity": "uint",
+     "price": "uint",
+     "long_D0": "ulong",
+     "text_C0": "toffset",
+     "name": "toffset",
+     "desc": "toffset",
+     "uint_D8": "uint",
+     "uint_DC": "uint",
+     "uint_E0": "uint",
+     "uint_E4": "uint"
+    }
+   ]
+  },
+  "StatusParam": {
+   "424": [
+    {
+     "ai_file": "toffset",
+     "code": "toffset",
+     "data": "ulong",
+     "file1": "toffset",
+     "file2": "toffset",
+     "file3": "toffset",
+     "file4": "toffset",
+     "unknown": "toffset",
+     "file5": "toffset",
+     "int1": "uint",
+     "float1": "float",
+     "float2": "float",
+     "float3": "float",
+     "NEW13_0": "ulong",
+     "float4": "float",
+     "float5": "float",
+     "float6": "float",
+     "float7": "float",
+     "float8": "float",
+     "float9": "float",
+     "float10": "float",
+     "float11": "float",
+     "float12": "float",
+     "float13": "float",
+     "float14": "float",
+     "float15": "float",
+     "float16": "float",
+     "float17": "float",
+     "code2": "toffset",
+     "int2": "uint",
+     "int3": "uint",
+     "int4": "uint",
+     "float23": "float",
+     "float24": "float",
+     "float25": "float",
+     "float26": "float",
+     "float27": "float",
+     "short3": "ushort",
+     "short4": "ushort",
+     "short5": "ushort",
+     "short6": "ushort",
+     "float28": "float",
+     "float29": "float",
+     "int5": "uint",
+     "float30": "float",
+     "float31": "float",
+     "float32": "float",
+     "level": "uint",
+     "exp_base": "uint",
+     "exp_growth": "float",
+     "hp_base": "uint",
+     "hp_growth": "float",
+     "ep_base": "uint",
+     "cp_base": "uint",
+     "cp_growth": "float",
+     "str_base": "uint",
+     "str_growth": "float",
+     "def_base": "uint",
+     "def_growth": "float",
+     "ats_base": "uint",
+     "ats_growth": "float",
+     "adf_base": "uint",
+     "adf_growth": "float",
+     "spd_base": "uint",
+     "spd_growth": "float",
+     "agl_base": "uint",
+     "agl_growth": "float",
+     "dex_base": "uint",
+     "dex_growth": "float",
+     "mov": "uint",
+     "rng": "uint",
+     "int6": "uint",
+     "int7": "uint",
+     "int8": "uint",
+     "int9": "uint",
+     "int10": "uint",
+     "int11": "uint",
+     "poison_efficacy": "ubyte",
+     "freeze_efficacy": "ubyte",
+     "petrify_efficacy": "ubyte",
+     "sleep_efficacy": "ubyte",
+     "burn_efficacy": "ubyte",
+     "seal_efficacy": "ubyte",
+     "mute_efficacy": "ubyte",
+     "blind_efficacy": "ubyte",
+     "confuse_efficacy": "ubyte",
+     "deathblow_efficacy": "ubyte",
+     "statdown_efficacy": "ubyte",
+     "stun_efficacy": "ubyte",
+     "delay_efficacy": "ushort",
+     "earth_efficacy": "ushort",
+     "water_efficacy": "ushort",
+     "fire_efficacy": "ushort",
+     "wind_efficacy": "ushort",
+     "time_efficacy": "ushort",
+     "space_efficacy": "ushort",
+     "mirage_efficacy": "ushort",
+     "earth_sepith": "ubyte",
+     "water_sepith": "ubyte",
+     "fire_sepith": "ubyte",
+     "wind_sepith": "ubyte",
+     "time_sepith": "ubyte",
+     "space_sepith": "ubyte",
+     "mirage_sepith": "ubyte",
+     "sepith_mass": "ubyte",
+     "long_for_ally": "long",
+     "item_drop_1": "uint",
+     "item_drop_1_min": "ubyte",
+     "item_drop_1_max": "ubyte",
+     "item_drop_1_rate": "ushort",
+     "item_drop_2": "uint",
+     "item_drop_2_min": "ubyte",
+     "item_drop_2_max": "ubyte",
+     "item_drop_2_rate": "ushort",
+     "empty": "uint",
+     "name": "toffset",
+     "description": "toffset"
+    }
+   ],
+   "416": [
+    {
+     "ai_file": "toffset",
+     "code": "toffset",
+     "data": "ulong",
+     "file1": "toffset",
+     "file2": "toffset",
+     "file3": "toffset",
+     "file4": "toffset",
+     "unknown": "toffset",
+     "file5": "toffset",
+     "int1": "uint",
+     "float1": "float",
+     "float2": "float",
+     "float3": "float",
+     "float4": "float",
+     "float5": "float",
+     "float6": "float",
+     "float7": "float",
+     "float8": "float",
+     "float9": "float",
+     "float10": "float",
+     "float11": "float",
+     "float12": "float",
+     "float13": "float",
+     "float14": "float",
+     "float15": "float",
+     "float16": "float",
+     "float17": "float",
+     "code2": "toffset",
+     "int2": "uint",
+     "int3": "uint",
+     "int4": "uint",
+     "float23": "float",
+     "float24": "float",
+     "float25": "float",
+     "float26": "float",
+     "float27": "float",
+     "short3": "ushort",
+     "short4": "ushort",
+     "short5": "ushort",
+     "short6": "ushort",
+     "float28": "float",
+     "float29": "float",
+     "int5": "uint",
+     "float30": "float",
+     "float31": "float",
+     "float32": "float",
+     "level": "uint",
+     "exp_base": "uint",
+     "exp_growth": "float",
+     "hp_base": "uint",
+     "hp_growth": "float",
+     "ep_base": "uint",
+     "cp_base": "uint",
+     "cp_growth": "float",
+     "str_base": "uint",
+     "str_growth": "float",
+     "def_base": "uint",
+     "def_growth": "float",
+     "ats_base": "uint",
+     "ats_growth": "float",
+     "adf_base": "uint",
+     "adf_growth": "float",
+     "spd_base": "uint",
+     "spd_growth": "float",
+     "agl_base": "uint",
+     "agl_growth": "float",
+     "dex_base": "uint",
+     "dex_growth": "float",
+     "mov": "uint",
+     "rng": "uint",
+     "int6": "uint",
+     "int7": "uint",
+     "int8": "uint",
+     "int9": "uint",
+     "int10": "uint",
+     "int11": "uint",
+     "poison_efficacy": "ubyte",
+     "freeze_efficacy": "ubyte",
+     "petrify_efficacy": "ubyte",
+     "sleep_efficacy": "ubyte",
+     "burn_efficacy": "ubyte",
+     "seal_efficacy": "ubyte",
+     "mute_efficacy": "ubyte",
+     "blind_efficacy": "ubyte",
+     "confuse_efficacy": "ubyte",
+     "deathblow_efficacy": "ubyte",
+     "statdown_efficacy": "ubyte",
+     "stun_efficacy": "ubyte",
+     "delay_efficacy": "ushort",
+     "earth_efficacy": "ushort",
+     "water_efficacy": "ushort",
+     "fire_efficacy": "ushort",
+     "wind_efficacy": "ushort",
+     "time_efficacy": "ushort",
+     "space_efficacy": "ushort",
+     "mirage_efficacy": "ushort",
+     "earth_sepith": "ubyte",
+     "water_sepith": "ubyte",
+     "fire_sepith": "ubyte",
+     "wind_sepith": "ubyte",
+     "time_sepith": "ubyte",
+     "space_sepith": "ubyte",
+     "mirage_sepith": "ubyte",
+     "sepith_mass": "ubyte",
+     "long_for_ally": "long",
+     "item_drop_1": "uint",
+     "item_drop_1_min": "ubyte",
+     "item_drop_1_max": "ubyte",
+     "item_drop_1_rate": "ushort",
+     "item_drop_2": "uint",
+     "item_drop_2_min": "ubyte",
+     "item_drop_2_max": "ubyte",
+     "item_drop_2_rate": "ushort",
+     "empty": "uint",
+     "name": "toffset",
+     "description": "toffset"
+    }
+   ]
+  },
+  "NoteMonsRecordData": {
+   "48": [
+    {
+     "ref_name": "toffset",
+     "int1": "uint",
+     "int2": "uint",
+     "NEW3_0": "ulong",
+     "region": "long",
+     "code": "toffset",
+     "desc": "toffset"
+    }
+   ]
+  },
+  "CharaArrange": {
+   "72": [
+    {
+     "chr_id": "int",
+     "int1": "int",
+     "NEW2_0": "toffset",
+     "animation": "toffset",
+     "text1": "toffset",
+     "float1": "float",
+     "float2": "float",
+     "float3": "float",
+     "float4": "float",
+     "code": "toffset",
+     "empty1": "int",
+     "float5": "float",
+     "empty2": "long"
+    }
+   ]
+  },
+  "BreakObjectTableData": {
+   "64": [
+    {
+     "map_name": "toffset",
+     "object_name": "toffset",
+     "break_effect_ref": "ulong",
+     "drop_table_ref": "ulong",
+     "drop_flags": "uint",
+     "durability": "ushort",
+     "lottery_group": "ushort",
+     "NEW7_0": "toffset",
+     "se_ref": "ulong",
+     "vfx_ref": "ulong"
+    }
+   ],
+   "56": [
+    {
+     "map_name": "toffset",
+     "object_name": "toffset",
+     "break_effect_ref": "ulong",
+     "drop_table_ref": "ulong",
+     "drop_flags": "uint",
+     "durability": "ushort",
+     "lottery_group": "ushort",
+     "se_ref": "ulong",
+     "vfx_ref": "ulong"
+    }
+   ]
+  },
+  "EventBoxTableData": {
+   "56": [
+    {
+     "map_name": "toffset",
+     "eventbox_name": "toffset",
+     "enter_ref": "ulong",
+     "leave_ref": "ulong",
+     "box_type": "uint",
+     "flags_24": "uint",
+     "script_ref": "ulong",
+     "trigger_kind": "uint",
+     "reserved_34": "uint"
+    }
+   ]
+  },
+  "TalkTableData": {
+   "88": [
+    {
+     "uint_0": "uint",
+     "uint_4": "uint",
+     "text_8": "toffset",
+     "uint_10": "uint",
+     "uint_14": "uint",
+     "uint_18": "uint",
+     "uint_1C": "uint",
+     "uint_20": "uint",
+     "uint_24": "uint",
+     "uint_28": "uint",
+     "uint_2C": "uint",
+     "uint_30": "uint",
+     "uint_34": "uint",
+     "uint_38": "uint",
+     "uint_3C": "uint",
+     "uint_40": "uint",
+     "uint_44": "uint",
+     "uint_48": "uint",
+     "uint_4C": "uint",
+     "uint_50": "uint",
+     "uint_54": "uint"
+    }
+   ]
+  },
+  "TBoxParam": {
+   "120": [
+    {
+     "text_0": "toffset",
+     "text_8": "toffset",
+     "uint_10": "uint",
+     "uint_14": "uint",
+     "text_18": "toffset",
+     "text_20": "toffset",
+     "uint_28": "uint",
+     "uint_2C": "uint",
+     "array_30": "u16array",
+     "uint_3C": "uint",
+     "uint_40": "uint",
+     "uint_44": "uint",
+     "uint_48": "uint",
+     "uint_4C": "uint",
+     "uint_50": "uint",
+     "uint_54": "uint",
+     "uint_58": "uint",
+     "uint_5C": "uint",
+     "uint_60": "uint",
+     "uint_64": "uint",
+     "uint_68": "uint",
+     "uint_6C": "uint",
+     "uint_70": "uint",
+     "uint_74": "uint"
+    }
+   ]
+  },
+  "QuestText": {
+   "56": [
+    {
+     "quest_id": "ushort",
+     "txt_id": "int",
+     "empty1": "short",
+     "quest_description": "toffset",
+     "long1": "long",
+     "NEW5_0": "ulong",
+     "NEW5_1": "ulong",
+     "NEW5_2": "ulong",
+     "unk_txt": "toffset"
+    }
+   ]
+  },
+  "FishingSpot": {
+   "184": [
+    {
+     "text_0": "toffset",
+     "text_8": "toffset",
+     "uint_10": "uint",
+     "uint_14": "uint",
+     "uint_18": "uint",
+     "uint_1C": "uint",
+     "uint_20": "uint",
+     "uint_24": "uint",
+     "uint_28": "uint",
+     "uint_2C": "uint",
+     "uint_30": "uint",
+     "uint_34": "uint",
+     "uint_38": "uint",
+     "uint_3C": "uint",
+     "uint_40": "uint",
+     "uint_44": "uint",
+     "uint_48": "uint",
+     "uint_4C": "uint",
+     "uint_50": "uint",
+     "uint_54": "uint",
+     "uint_58": "uint",
+     "uint_5C": "uint",
+     "uint_60": "uint",
+     "uint_64": "uint",
+     "uint_68": "uint",
+     "uint_6C": "uint",
+     "uint_70": "uint",
+     "uint_74": "uint",
+     "uint_78": "uint",
+     "uint_7C": "uint",
+     "uint_80": "uint",
+     "uint_84": "uint",
+     "uint_88": "uint",
+     "uint_8C": "uint",
+     "uint_90": "uint",
+     "uint_94": "uint",
+     "uint_98": "uint",
+     "uint_9C": "uint",
+     "uint_A0": "uint",
+     "uint_A4": "uint",
+     "uint_A8": "uint",
+     "uint_AC": "uint",
+     "uint_B0": "uint",
+     "uint_B4": "uint"
+    }
+   ],
+   "440": [
+    {
+     "map_id": "toffset",
+     "script_name": "toffset",
+     "uint_10": "uint",
+     "uint_14": "uint",
+     "uint_18": "uint",
+     "uint_1C": "uint",
+     "uint_20": "uint",
+     "uint_24": "uint",
+     "uint_28": "uint",
+     "uint_2C": "uint",
+     "uint_30": "uint",
+     "uint_34": "uint",
+     "uint_38": "uint",
+     "uint_3C": "uint",
+     "uint_40": "uint",
+     "uint_44": "uint",
+     "uint_48": "uint",
+     "uint_4C": "uint",
+     "uint_50": "uint",
+     "uint_54": "uint",
+     "uint_58": "uint",
+     "uint_5C": "uint",
+     "uint_60": "uint",
+     "uint_64": "uint",
+     "uint_68": "uint",
+     "uint_6C": "uint",
+     "uint_70": "uint",
+     "uint_74": "uint",
+     "uint_78": "uint",
+     "uint_7C": "uint",
+     "uint_80": "uint",
+     "uint_84": "uint",
+     "uint_88": "uint",
+     "uint_8C": "uint",
+     "uint_90": "uint",
+     "uint_94": "uint",
+     "uint_98": "uint",
+     "uint_9C": "uint",
+     "uint_A0": "uint",
+     "uint_A4": "uint",
+     "uint_A8": "uint",
+     "uint_AC": "uint",
+     "uint_B0": "uint",
+     "uint_B4": "uint",
+     "uint_B8": "uint",
+     "uint_BC": "uint",
+     "uint_C0": "uint",
+     "uint_C4": "uint",
+     "uint_C8": "uint",
+     "uint_CC": "uint",
+     "uint_D0": "uint",
+     "uint_D4": "uint",
+     "uint_D8": "uint",
+     "uint_DC": "uint",
+     "uint_E0": "uint",
+     "uint_E4": "uint",
+     "uint_E8": "uint",
+     "uint_EC": "uint",
+     "uint_F0": "uint",
+     "uint_F4": "uint",
+     "uint_F8": "uint",
+     "uint_FC": "uint",
+     "uint_100": "uint",
+     "uint_104": "uint",
+     "uint_108": "uint",
+     "uint_10C": "uint",
+     "uint_110": "uint",
+     "uint_114": "uint",
+     "uint_118": "uint",
+     "uint_11C": "uint",
+     "uint_120": "uint",
+     "uint_124": "uint",
+     "uint_128": "uint",
+     "uint_12C": "uint",
+     "uint_130": "uint",
+     "uint_134": "uint",
+     "uint_138": "uint",
+     "uint_13C": "uint",
+     "uint_140": "uint",
+     "uint_144": "uint",
+     "uint_148": "uint",
+     "uint_14C": "uint",
+     "uint_150": "uint",
+     "uint_154": "uint",
+     "uint_158": "uint",
+     "uint_15C": "uint",
+     "uint_160": "uint",
+     "uint_164": "uint",
+     "uint_168": "uint",
+     "uint_16C": "uint",
+     "uint_170": "uint",
+     "uint_174": "uint",
+     "uint_178": "uint",
+     "uint_17C": "uint",
+     "uint_180": "uint",
+     "uint_184": "uint",
+     "uint_188": "uint",
+     "uint_18C": "uint",
+     "uint_190": "uint",
+     "uint_194": "uint",
+     "uint_198": "uint",
+     "uint_19C": "uint",
+     "uint_1A0": "uint",
+     "uint_1A4": "uint",
+     "uint_1A8": "uint",
+     "uint_1AC": "uint",
+     "uint_1B0": "uint",
+     "uint_1B4": "uint"
+    }
+   ]
+  },
+  "NoteCookChara": {
+   "24": [
+    {
+     "uint_0": "uint",
+     "uint_4": "uint",
+     "uint_8": "uint",
+     "uint_C": "uint",
+     "uint_10": "uint",
+     "uint_14": "uint"
+    }
+   ]
+  },
+  "NoteFishingCategory": {
+   "32": [
+    {
+     "uint_0": "uint",
+     "uint_4": "uint",
+     "array_8": "u8array",
+     "uint_14": "uint",
+     "text_18": "toffset"
+    }
+   ]
+  },
+  "NoteMainPartnerInfo": {
+   "24": [
+    {
+     "array_0": "u8array",
+     "uint_C": "uint",
+     "uint_10": "uint",
+     "uint_14": "uint"
+    }
+   ]
+  },
+  "NoteMainHistory": {
+   "8": [
+    {
+     "value": "long"
+    }
+   ]
+  },
+  "PokerRollRate": {
+   "128": [
+    {
+     "uint_0": "uint",
+     "uint_4": "uint",
+     "text_8": "toffset",
+     "text_10": "toffset",
+     "array_18": "u32array",
+     "uint_24": "uint",
+     "uint_28": "uint",
+     "uint_2C": "uint",
+     "uint_30": "uint",
+     "uint_34": "uint",
+     "uint_38": "uint",
+     "uint_3C": "uint",
+     "uint_40": "uint",
+     "uint_44": "uint",
+     "uint_48": "uint",
+     "uint_4C": "uint",
+     "uint_50": "uint",
+     "uint_54": "uint",
+     "uint_58": "uint",
+     "uint_5C": "uint",
+     "uint_60": "uint",
+     "uint_64": "uint",
+     "uint_68": "uint",
+     "uint_6C": "uint",
+     "uint_70": "uint",
+     "uint_74": "uint",
+     "uint_78": "uint",
+     "uint_7C": "uint"
+    }
+   ]
+  },
+  "RouletteBetRate": {
+   "40": [
+    {
+     "uint_0": "uint",
+     "uint_4": "uint",
+     "text_8": "toffset",
+     "array_10": "u32array",
+     "uint_1C": "uint",
+     "uint_20": "uint",
+     "uint_24": "uint"
+    }
+   ]
+  },
+  "RouletteRuleText": {
+   "24": [
+    {
+     "uint_0": "uint",
+     "uint_4": "uint",
+     "array_8": "u32array",
+     "uint_14": "uint"
+    }
+   ]
+  },
+  "SlotPomInfo": {
+   "32": [
+    {
+     "uint_0": "uint",
+     "uint_4": "uint",
+     "array_8": "u32array",
+     "uint_14": "uint",
+     "uint_18": "uint",
+     "uint_1C": "uint"
+    }
+   ]
+  },
+  "BlackJackRuleText": {
+   "24": [
+    {
+     "uint_0": "uint",
+     "uint_4": "uint",
+     "uint_8": "uint",
+     "uint_C": "uint",
+     "uint_10": "uint",
+     "uint_14": "uint"
+    }
+   ]
+  },
+  "PokerRuleText": {
+   "24": [
+    {
+     "uint_0": "uint",
+     "uint_4": "uint",
+     "uint_8": "uint",
+     "uint_C": "uint",
+     "uint_10": "uint",
+     "uint_14": "uint"
+    }
+   ]
+  },
+  "FieldItemTableData": {
+   "32": [
+    {
+     "unknown_id1": "ulong",
+     "x_coordinate": "float",
+     "y_coordinate": "float",
+     "z_coordinate": "float",
+     "unknown": "uint",
+     "unknown_id2": "ushort",
+     "item_id": "ushort",
+     "value": "uint"
+    }
+   ]
+  },
+  "FishInfo": {
+   "224": [
+    {
+     "uint_0": "uint",
+     "uint_4": "uint",
+     "array_8": "u8array",
+     "uint_14": "uint",
+     "uint_18": "uint",
+     "uint_1C": "uint",
+     "uint_20": "uint",
+     "uint_24": "uint",
+     "uint_28": "uint",
+     "uint_2C": "uint",
+     "uint_30": "uint",
+     "uint_34": "uint",
+     "uint_38": "uint",
+     "uint_3C": "uint",
+     "uint_40": "uint",
+     "uint_44": "uint",
+     "uint_48": "uint",
+     "uint_4C": "uint",
+     "uint_50": "uint",
+     "uint_54": "uint",
+     "uint_58": "uint",
+     "uint_5C": "uint",
+     "uint_60": "uint",
+     "uint_64": "uint",
+     "uint_68": "uint",
+     "uint_6C": "uint",
+     "uint_70": "uint",
+     "uint_74": "uint",
+     "uint_78": "uint",
+     "uint_7C": "uint",
+     "uint_80": "uint",
+     "uint_84": "uint",
+     "uint_88": "uint",
+     "uint_8C": "uint",
+     "uint_90": "uint",
+     "uint_94": "uint",
+     "float_98": "float",
+     "uint_9C": "uint",
+     "float_A0": "float",
+     "float_A4": "float",
+     "uint_A8": "uint",
+     "uint_AC": "uint",
+     "uint_B0": "uint",
+     "uint_B4": "uint",
+     "float_B8": "float",
+     "uint_BC": "uint",
+     "float_C0": "float",
+     "float_C4": "float",
+     "float_C8": "float",
+     "uint_CC": "uint",
+     "text_D0": "toffset",
+     "uint_D8": "uint",
+     "uint_DC": "uint"
+    }
+   ],
+   "168": [
+    {
+     "ushort1": "ushort",
+     "uint1": "uint",
+     "ushort2": "ushort",
+     "id": "toffset",
+     "ulong1": "ulong",
+     "ulong2": "ulong",
+     "ulong3": "ulong",
+     "ulong4": "ulong",
+     "ulong5": "ulong",
+     "ulong6": "ulong",
+     "ulong7": "ulong",
+     "ulong8": "ulong",
+     "ulong9": "ulong",
+     "ulong10": "ulong",
+     "ulong11": "ulong",
+     "ulong12": "ulong",
+     "ulong13": "ulong",
+     "ulong14": "ulong",
+     "ulong15": "ulong",
+     "ulong16": "ulong",
+     "ulong17": "ulong",
+     "ulong18": "ulong",
+     "desc": "toffset"
+    }
+   ]
+  },
+  "FishingConstant": {
+   "96": [
+    {
+     "uint_0": "uint",
+     "uint_4": "uint",
+     "uint_8": "uint",
+     "uint_C": "uint",
+     "uint_10": "uint",
+     "uint_14": "uint",
+     "float_18": "float",
+     "uint_1C": "uint",
+     "uint_20": "uint",
+     "uint_24": "uint",
+     "uint_28": "uint",
+     "uint_2C": "uint",
+     "uint_30": "uint",
+     "uint_34": "uint",
+     "uint_38": "uint",
+     "uint_3C": "uint",
+     "float_40": "float",
+     "uint_44": "uint",
+     "uint_48": "uint",
+     "uint_4C": "uint",
+     "uint_50": "uint",
+     "uint_54": "uint",
+     "text_58": "toffset"
+    }
+   ],
+   "24": [
+    {
+     "ulong1": "ulong",
+     "ulong2": "ulong",
+     "ulong3": "ulong"
+    }
+   ]
+  },
+  "BattleLevelTurn": {
+   "40": [
+    {
+     "difficulty_id": "uint",
+     "player_damage_multiplier": "uint",
+     "enemy_damage_multiplier": "uint",
+     "hp_or_unknown_multi_1": "uint",
+     "hp_or_unknown_multi_2": "uint",
+     "enemy_spd_multiplier": "uint",
+     "int1": "uint",
+     "NEW7_0": "ulong",
+     "NEW7_1": "uint"
+    }
+   ]
+  },
+  "PortraitDataParam": {
+   "48": [
+    {
+     "portrait_id": "uint",
+     "flags": "uint",
+     "base_chr_code": "toffset",
+     "variant_ref": "toffset",
+     "offset_x": "float",
+     "offset_y": "float",
+     "NEW6_0": "ulong",
+     "offset_z": "float",
+     "scale": "float"
+    }
+   ]
+  },
+  "ActiveVoiceTableData": {
+   "128": [
+    {
+     "id": "ulong",
+     "char_ids": "u16array",
+     "empty1": "uint",
+     "filename": "toffset",
+     "type_id": "long",
+     "tag": "toffset",
+     "array2": "u16array",
+     "empty2": "uint",
+     "array3": "u16array",
+     "empty3": "uint",
+     "array4": "u16array",
+     "empty4": "uint",
+     "array5": "u32array",
+     "empty5": "uint",
+     "dialogue": "toffset",
+     "unknown": "long"
+    }
+   ]
+  },
+  "MonsterSettingParam": {
+   "168": [
+    {
+     "string1": "toffset",
+     "id": "ulong",
+     "array1": "u32array",
+     "btl_name": "uint",
+     "tag": "toffset",
+     "long2": "ulong",
+     "array2": "u16array",
+     "empty2": "uint",
+     "array3": "u16array",
+     "empty3": "uint",
+     "battle": "toffset",
+     "int1": "uint",
+     "float1": "float",
+     "float2": "float",
+     "float3": "float",
+     "float4": "float",
+     "unknown1": "uint",
+     "unknown2": "uint",
+     "unknown3": "uint",
+     "string7": "toffset",
+     "move_type": "toffset",
+     "string9": "toffset",
+     "long5": "ulong",
+     "long6": "ulong",
+     "stringA": "toffset"
+    }
+   ],
+   "176": [
+    {
+     "string1": "toffset",
+     "id": "ulong",
+     "array1": "u32array",
+     "btl_name": "uint",
+     "tag": "toffset",
+     "long2": "ulong",
+     "array2": "u16array",
+     "empty2": "uint",
+     "array3": "u16array",
+     "empty3": "uint",
+     "battle": "toffset",
+     "int1": "uint",
+     "float1": "float",
+     "float2": "float",
+     "float3": "float",
+     "float4": "float",
+     "unknown1": "uint",
+     "unknown2": "uint",
+     "unknown3": "uint",
+     "string7": "toffset",
+     "move_type": "toffset",
+     "string9": "toffset",
+     "array_90": "u32array",
+     "uint_9C": "uint",
+     "long6": "ulong",
+     "stringA": "toffset"
+    }
+   ]
+  },
+  "SceneCommonSetting": {
+   "28": [
+    {
+     "setting_id": "uint",
+     "param_04": "float",
+     "float_08": "float",
+     "param_0C": "float",
+     "param_10": "float",
+     "float_14": "float",
+     "param_18": "float"
+    }
+   ]
+  },
+  "MapJumpChrIcon": {
+   "12": [
+    {
+     "uint_0": "uint",
+     "uint_4": "uint",
+     "uint_8": "uint"
+    }
+   ]
+  },
+  "SkillParam": {
+   "176": [
+    {
+     "id": "uint",
+     "uint_04": "uint",
+     "flag1": "toffset",
+     "skill_type": "uint",
+     "uint_14": "uint",
+     "flag2": "toffset",
+     "targeting_data": "uint",
+     "float_24": "float",
+     "aoe_range": "float",
+     "aoe_size": "float",
+     "effect_type": "uint",
+     "power": "uint",
+     "eff0_p1": "uint",
+     "eff0_p2": "uint",
+     "eff1_id": "uint",
+     "eff1_val": "uint",
+     "eff1_p1": "uint",
+     "eff1_p2": "uint",
+     "eff2_id": "uint",
+     "eff2_val": "uint",
+     "eff2_p1": "uint",
+     "eff2_p2": "uint",
+     "eff3_id": "uint",
+     "eff3_val": "uint",
+     "eff3_p1": "uint",
+     "eff3_p2": "uint",
+     "eff4_id": "uint",
+     "eff4_val": "uint",
+     "eff4_p1": "uint",
+     "eff4_p2": "uint",
+     "cast_time": "float",
+     "uint_84": "uint",
+     "ep_cost": "uint",
+     "uint_8C": "uint",
+     "anim_name": "toffset",
+     "name": "toffset",
+     "text_A0": "toffset",
+     "desc": "toffset"
+    }
+   ]
+  },
+  "BlackJackRollRate": {
+   "128": [
+    {
+     "uint_0": "uint",
+     "uint_4": "uint",
+     "text_8": "toffset",
+     "text_10": "toffset",
+     "text_18": "toffset",
+     "uint_20": "uint",
+     "uint_24": "uint",
+     "uint_28": "uint",
+     "uint_2C": "uint",
+     "uint_30": "uint",
+     "uint_34": "uint",
+     "uint_38": "uint",
+     "uint_3C": "uint",
+     "uint_40": "uint",
+     "uint_44": "uint",
+     "uint_48": "uint",
+     "uint_4C": "uint",
+     "uint_50": "uint",
+     "uint_54": "uint",
+     "uint_58": "uint",
+     "uint_5C": "uint",
+     "uint_60": "uint",
+     "uint_64": "uint",
+     "uint_68": "uint",
+     "uint_6C": "uint",
+     "uint_70": "uint",
+     "uint_74": "uint",
+     "uint_78": "uint",
+     "uint_7C": "uint"
+    }
+   ]
+  },
+  "RouletteCheat": {
+   "24": [
+    {
+     "uint_0": "uint",
+     "uint_4": "uint",
+     "uint_8": "uint",
+     "uint_C": "uint",
+     "uint_10": "uint",
+     "uint_14": "uint"
+    }
+   ]
+  },
+  "SlotMonsterInfo": {
+   "48": [
+    {
+     "uint_0": "uint",
+     "uint_4": "uint",
+     "text_8": "toffset",
+     "uint_10": "uint",
+     "uint_14": "uint",
+     "uint_18": "uint",
+     "uint_1C": "uint",
+     "uint_20": "uint",
+     "uint_24": "uint",
+     "uint_28": "uint",
+     "uint_2C": "uint"
+    }
+   ]
+  },
+  "SlotTBoxInfo": {
+   "52": [
+    {
+     "uint_0": "uint",
+     "uint_4": "uint",
+     "uint_8": "uint",
+     "uint_C": "uint",
+     "uint_10": "uint",
+     "uint_14": "uint",
+     "uint_18": "uint",
+     "uint_1C": "uint",
+     "uint_20": "uint",
+     "uint_24": "uint",
+     "uint_28": "uint",
+     "uint_2C": "uint",
+     "uint_30": "uint"
+    }
+   ]
+  },
+  "ChrDataParam": {
+   "56": [
+    {
+     "chr_id": "uint",
+     "scale_x": "float",
+     "scale_y": "float",
+     "camera_distance": "float",
+     "float_10": "float",
+     "float_14": "float",
+     "face_scale": "float",
+     "face_distance": "float",
+     "popup_offset_x": "float",
+     "popup_offset_y": "float",
+     "byte_28": "ubyte",
+     "byte_29": "ubyte",
+     "byte_2A": "ubyte",
+     "byte_2B": "ubyte",
+     "portrait_id": "uint",
+     "loading_scale": "float",
+     "special_value": "ushort",
+     "reserved_3E": "ushort"
+    }
+   ],
+   "64": [
+    {
+     "chr_id": "uint",
+     "scale_x": "float",
+     "scale_y": "float",
+     "camera_distance": "float",
+     "float_10": "float",
+     "float_14": "float",
+     "face_scale": "float",
+     "face_distance": "float",
+     "popup_offset_x": "float",
+     "popup_offset_y": "float",
+     "byte_28": "ubyte",
+     "byte_29": "ubyte",
+     "byte_2A": "ubyte",
+     "byte_2B": "ubyte",
+     "portrait_id": "uint",
+     "loading_name": "toffset",
+     "loading_scale": "float",
+     "special_value": "ushort",
+     "reserved_3E": "ushort"
+    }
+   ]
+  },
+  "OrbmentSlotParam": {
+   "64": [
+    {
+     "uint_0": "uint",
+     "uint_4": "uint",
+     "uint_8": "uint",
+     "uint_C": "uint",
+     "uint_10": "uint",
+     "uint_14": "uint",
+     "uint_18": "uint",
+     "uint_1C": "uint",
+     "uint_20": "uint",
+     "uint_24": "uint",
+     "uint_28": "uint",
+     "uint_2C": "uint",
+     "uint_30": "uint",
+     "uint_34": "uint",
+     "uint_38": "uint",
+     "uint_3C": "uint"
+    }
+   ]
+  },
+  "QuartzParam": {
+   "40": [
+    {
+     "quartz_id": "ushort",
+     "element_id": "ushort",
+     "flags_04": "uint",
+     "pattern_ref": "toffset",
+     "earth_cost": "ushort",
+     "water_cost": "ushort",
+     "fire_cost": "ushort",
+     "wind_cost": "ushort",
+     "time_cost": "ushort",
+     "space_cost": "ushort",
+     "mirage_cost": "ushort",
+     "element_value": "ushort",
+     "flags_20": "uint",
+     "flags_24": "uint"
+    }
+   ]
+  },
+  "ArtsParam": {
+   "16": [
+    {
+     "art_id": "uint",
+     "value_04": "ubyte",
+     "byte_05": "ubyte",
+     "byte_06": "ubyte",
+     "flags_07": "ubyte",
+     "value_08": "ushort",
+     "value_0A": "ushort",
+     "flags_0C": "uint"
+    }
+   ]
+  },
+  "BlackJackInfo": {
+   "12": [
+    {
+     "uint_0": "uint",
+     "uint_4": "uint",
+     "uint_8": "uint"
+    }
+   ]
+  },
+  "PokerInfo": {
+   "12": [
+    {
+     "uint_0": "uint",
+     "uint_4": "uint",
+     "uint_8": "uint"
+    }
+   ]
+  },
+  "SlotRoles": {
+   "12": [
+    {
+     "uint_0": "uint",
+     "uint_4": "uint",
+     "uint_8": "uint"
+    }
+   ]
+  },
+  "SlotReelPattern": {
+   "6": [
+    {
+     "uint_0": "uint",
+     "ushort_4": "ushort"
+    }
+   ]
+  },
+  "FishingCastInfo": {
+   "12": [
+    {
+     "uint1": "uint",
+     "ushort1": "ushort",
+     "uint2": "uint",
+     "ushort2": "ushort"
+    }
+   ]
+  },
+  "QuestTitle": {
+   "104": [
+    {
+     "id": "ushort",
+     "int1": "int",
+     "empty1": "short",
+     "quest_name": "toffset",
+     "quest_giver": "toffset",
+     "short1": "short",
+     "int2": "int",
+     "empty2": "short",
+     "file_name": "toffset",
+     "int3": "int",
+     "int4": "int",
+     "byte1": "ubyte",
+     "byte2": "ubyte",
+     "byte3": "ubyte",
+     "byte4": "ubyte",
+     "byte5": "ubyte",
+     "byte6": "ubyte",
+     "byte7": "ubyte",
+     "byte8": "ubyte",
+     "byte9": "ubyte",
+     "byte10": "ubyte",
+     "byte11": "ubyte",
+     "byte12": "ubyte",
+     "byte13": "ubyte",
+     "byte14": "ubyte",
+     "byte15": "ubyte",
+     "byte16": "ubyte",
+     "int5": "int",
+     "int6": "int",
+     "short2": "ushort",
+     "int7": "int",
+     "empty3": "short",
+     "quest_number": "toffset",
+     "completion_comment": "toffset",
+     "empty4": "long"
+    }
+   ]
   }
  }
 }

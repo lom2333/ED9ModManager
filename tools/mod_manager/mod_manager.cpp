@@ -4,6 +4,7 @@
 #include "backends/imgui_impl_dx11.h"
 #include "modkit/mod_merge_orchestrator.h"
 #include "modkit/generic_tbl.h"
+#include "modkit/tbl_merge.h"
 #include "ed9_dat.hpp"
 #include "json.hpp"
 #include "miniz.h"
@@ -47,7 +48,7 @@ using ojson = nlohmann::ordered_json;
 
 static float g_dpiScale = 1.0f;
 
-static const char* kVersion = "1.0.9";
+static const char* kVersion = "1.1.1";
 static const wchar_t* kUpdateHost = L"api.github.com";
 static const wchar_t* kUpdatePath = L"/repos/lom2333/ED9ModManager/releases/latest";
 
@@ -242,6 +243,7 @@ struct App {
     std::vector<AssetRow> selAssets;
     std::vector<AssetRow> selAi;
     std::vector<AssetRow> selAni;
+    std::vector<AssetRow> selVfx;
     std::vector<AudioGroup> audioGroups;
     std::set<std::string> conflictMods;
     std::set<std::string> errorMods;
@@ -676,6 +678,37 @@ static std::vector<std::string> scanModScriptRels(const App& a, const std::strin
     return out;
 }
 
+static std::vector<std::string> scanModVfxRels(const App& a, const std::string& modName) {
+    std::vector<std::string> out;
+    std::error_code ec;
+    const fs::path vfxDir = modRootOf(a, modName) / L"vfx";
+    if (!fs::is_directory(vfxDir, ec)) return out;
+    for (auto it = fs::recursive_directory_iterator(vfxDir, ec); it != fs::recursive_directory_iterator(); it.increment(ec)) {
+        if (ec) break;
+        if (!it->is_regular_file(ec) || _wcsicmp(it->path().extension().c_str(), L".vfx") != 0) continue;
+        out.push_back("vfx/" + ws2utf8(fs::relative(it->path(), vfxDir, ec).generic_wstring()));
+    }
+    std::sort(out.begin(), out.end());
+    return out;
+}
+
+static void computeSelVfx(App& a, const std::string& modName) {
+    a.selVfx.clear();
+    std::map<std::string, std::vector<std::string>> prov;
+    for (const auto& mm : a.mods) {
+        if (!mm.enabled) continue;
+        for (const auto& rel : scanModVfxRels(a, mm.name)) prov[rel].push_back(mm.name);
+    }
+    for (const auto& rel : scanModVfxRels(a, modName)) {
+        AssetRow ar; ar.rel = rel;
+        auto it = prov.find(rel);
+        if (it != prov.end()) ar.providers = it->second;
+        ar.conflict = ar.providers.size() > 1;
+        ar.winner = ar.providers.empty() ? std::string() : ar.providers.back();
+        a.selVfx.push_back(std::move(ar));
+    }
+}
+
 static void computeSelScripts(App& a, const std::string& modName, const char* sub, std::vector<AssetRow>& rows) {
     rows.clear();
     std::map<std::string, std::vector<std::string>> prov;
@@ -753,6 +786,7 @@ static void updateLeftIndicators(App& a) {
             for (const auto& rel : scanModAssetRels(a, m.name)) prov[rel].push_back(m.name);
             for (const auto& rel : scanModScriptRels(a, m.name, "ai")) prov[rel].push_back(m.name);
             for (const auto& rel : scanModScriptRels(a, m.name, "ani")) prov[rel].push_back(m.name);
+            for (const auto& rel : scanModVfxRels(a, m.name)) prov[rel].push_back(m.name);
         }
         for (const auto& kv : prov)
             if (kv.second.size() > 1) for (const auto& mn : kv.second) a.conflictMods.insert(mn);
@@ -910,12 +944,8 @@ static mk::TblValue jsonToValueByType(const std::string& type, const ojson& jv) 
 static bool TblTypeHasUnmodeledPool(const std::string& name) {
     static const std::set<std::string> kPoolTables = {
         "NPCParam",
-        "BreakObjectTableData",
-        "EventBoxTableData",
         "TBoxParam",
         "CollisionFootStepInfo",
-        "FieldItemTableData",
-        "PortraitDataParam",
         "EyeAttachData",
         "EyeModifyAttachData",
         "TitleTableData",
@@ -963,11 +993,13 @@ static bool jsonToTblFileG(const ojson& j, const std::wstring& schemasDir, mk::T
         mk::TblTableG t; t.name = name; t.schema = schema;
         for (const auto& rj : rows) {
             if (!rj.is_object()) continue;
+            ojson r = rj;
+            if (mk::tbl_merge::UpgradeLegacyTblObjects(name, schema, std::vector<ojson*>{ &r }, true, err) < 0) return false;
             mk::TblRowG row;
             static const ojson kNull;
             for (const mk::TblField& f : schema.fields) {
-                auto fit = rj.find(f.name);
-                row.fields.emplace_back(f.name, jsonToValueByType(f.type, fit != rj.end() ? fit.value() : kNull));
+                auto fit = r.find(f.name);
+                row.fields.emplace_back(f.name, jsonToValueByType(f.type, fit != r.end() ? fit.value() : kNull));
             }
             t.rows.push_back(std::move(row));
         }
@@ -1537,6 +1569,10 @@ static void drawModAni(App& a, const orch::ModInfo& m) {
     drawModScripts(m, a.selAni, "动作文件 (%d 个, 冲突 %d)", "动作文件 (%d 个)", "anigrp", "[ANI]");
 }
 
+static void drawModVfx(App& a, const orch::ModInfo& m) {
+    drawModScripts(m, a.selVfx, "特效文件 (%d 个, 冲突 %d)", "特效文件 (%d 个)", "vfxgrp", "[VFX]");
+}
+
 static ImFont* g_chipFont = nullptr;
 
 struct ChipQ { ImVec2 c, half; float* anim; float scaleUp; bool hov; std::string lbl; };
@@ -1606,6 +1642,7 @@ static void drawModConfig(App& a) {
         computeSelAssets(a, m.name);
         computeSelScripts(a, m.name, "ai", a.selAi);
         computeSelScripts(a, m.name, "ani", a.selAni);
+        computeSelVfx(a, m.name);
         scanAudioGroups(a, m.name);
         a.compsFor = m.name;
         a.cfgFile.clear();
@@ -1652,6 +1689,7 @@ static void drawModConfig(App& a) {
         drawModAssets(a, m);
         drawModAi(a, m);
         drawModAni(a, m);
+        drawModVfx(a, m);
         return;
     }
 
@@ -1817,6 +1855,7 @@ static void drawModConfig(App& a) {
     drawModAssets(a, m);
     drawModAi(a, m);
     drawModAni(a, m);
+    drawModVfx(a, m);
 }
 
 static void centerModal(float fracW = 0, float fracH = 0,
@@ -1875,6 +1914,13 @@ static void drawSettings(App& a) {
 struct ChangeEntry { const char* ver; const char* date; std::vector<const char*> items; };
 static const std::vector<ChangeEntry>& changelog() {
     static const std::vector<ChangeEntry> log = {
+        { "1.1.1", "2026-09-30", {
+            "新增Vfx特效文件通道，扩充MOD角色设置",
+            "修复了tbl相关错误结构体",
+        } },
+        { "1.1.0", "2026-09-24", {
+            "对MOD加载器追加了更好的自我修复功能（自愈）",
+        } },
         { "1.0.9", "2026-09-24", {
             "新增Ani和Ai文件通道",
         } },

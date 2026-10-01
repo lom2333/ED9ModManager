@@ -137,13 +137,76 @@ std::wstring findSystemTar() {
     return (GetFileAttributesW(p.c_str()) != INVALID_FILE_ATTRIBUTES) ? p : std::wstring();
 }
 
+std::wstring regString(HKEY root, const wchar_t* subKey, const wchar_t* value, REGSAM view) {
+    HKEY k = nullptr;
+    if (RegOpenKeyExW(root, subKey, 0, KEY_QUERY_VALUE | view, &k) != ERROR_SUCCESS) return {};
+    std::wstring s;
+    DWORD type = 0, bytes = 0;
+    if (RegQueryValueExW(k, value, nullptr, &type, nullptr, &bytes) == ERROR_SUCCESS &&
+        (type == REG_SZ || type == REG_EXPAND_SZ) && bytes >= sizeof(wchar_t)) {
+        s.resize(bytes / sizeof(wchar_t));
+        if (RegQueryValueExW(k, value, nullptr, nullptr, (BYTE*)s.data(), &bytes) == ERROR_SUCCESS)
+            s.resize(bytes / sizeof(wchar_t));
+        else
+            s.clear();
+    }
+    RegCloseKey(k);
+    while (!s.empty() && s.back() == L'\0') s.pop_back();
+    if (type == REG_EXPAND_SZ && !s.empty()) {
+        const DWORD n = ExpandEnvironmentStringsW(s.c_str(), nullptr, 0);
+        std::wstring e(n, L'\0');
+        if (n > 1 && ExpandEnvironmentStringsW(s.c_str(), e.data(), n) == n) { e.resize(n - 1); s = e; }
+    }
+    return s;
+}
+
+std::wstring dirOfRegPath(std::wstring s) {
+    if (!s.empty() && s[0] == L'"') {
+        const size_t q = s.find(L'"', 1);
+        s = s.substr(1, q == std::wstring::npos ? std::wstring::npos : q - 1);
+    }
+    const std::wstring low = lowerW(s);
+    for (const wchar_t* ext : { L".exe", L".dll" }) {
+        const size_t e = low.find(ext);
+        if (e == std::wstring::npos) continue;
+        const size_t slash = s.find_last_of(L"\\/", e);
+        return slash == std::wstring::npos ? std::wstring() : s.substr(0, slash);
+    }
+    return s;
+}
+
 std::wstring findSevenZip() {
-    const wchar_t* cands[] = {
-        L"C:\\Program Files\\7-Zip\\7z.exe",
-        L"C:\\Program Files (x86)\\7-Zip\\7z.exe",
+    struct Probe { HKEY root; const wchar_t* key; const wchar_t* value; };
+    const Probe probes[] = {
+        { HKEY_CURRENT_USER,  L"Software\\7-Zip", L"Path64" },
+        { HKEY_CURRENT_USER,  L"Software\\7-Zip", L"Path32" },
+        { HKEY_CURRENT_USER,  L"Software\\7-Zip", L"Path" },
+        { HKEY_LOCAL_MACHINE, L"Software\\7-Zip", L"Path64" },
+        { HKEY_LOCAL_MACHINE, L"Software\\7-Zip", L"Path32" },
+        { HKEY_LOCAL_MACHINE, L"Software\\7-Zip", L"Path" },
+        { HKEY_LOCAL_MACHINE, L"Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\7zFM.exe", nullptr },
+        { HKEY_CLASSES_ROOT,  L"CLSID\\{23170F69-40C1-278A-1000-000100020000}\\InprocServer32", nullptr },
+        { HKEY_CLASSES_ROOT,  L"7-Zip.7z\\shell\\open\\command", nullptr },
     };
-    for (const wchar_t* c : cands)
-        if (GetFileAttributesW(c) != INVALID_FILE_ATTRIBUTES) return c;
+    const REGSAM views[] = { KEY_WOW64_64KEY, KEY_WOW64_32KEY };
+    std::vector<std::wstring> dirs;
+    for (const Probe& p : probes)
+        for (REGSAM v : views)
+            dirs.push_back(dirOfRegPath(regString(p.root, p.key, p.value, v)));
+    for (const wchar_t* env : { L"ProgramW6432", L"ProgramFiles", L"ProgramFiles(x86)" }) {
+        wchar_t pf[MAX_PATH] = {};
+        const DWORD n = GetEnvironmentVariableW(env, pf, MAX_PATH);
+        if (n > 0 && n < MAX_PATH) dirs.push_back(std::wstring(pf) + L"\\7-Zip");
+    }
+    dirs.push_back(L"C:\\Program Files\\7-Zip");
+    dirs.push_back(L"C:\\Program Files (x86)\\7-Zip");
+    for (std::wstring d : dirs) {
+        if (d.empty()) continue;
+        if (d.back() != L'\\' && d.back() != L'/') d += L'\\';
+        d += L"7z.exe";
+        const DWORD a = GetFileAttributesW(d.c_str());
+        if (a != INVALID_FILE_ATTRIBUTES && !(a & FILE_ATTRIBUTE_DIRECTORY)) return d;
+    }
     wchar_t buf[MAX_PATH] = {};
     if (SearchPathW(nullptr, L"7z.exe", nullptr, MAX_PATH, buf, nullptr)) return buf;
     return {};

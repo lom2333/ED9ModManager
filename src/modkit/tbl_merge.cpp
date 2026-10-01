@@ -1,7 +1,9 @@
 #include "modkit/tbl_merge.h"
 #include "modkit/generic_tbl.h"
 
+#include <algorithm>
 #include <cstdio>
+#include <cstring>
 #include <map>
 #include <string>
 #include <unordered_map>
@@ -70,6 +72,143 @@ static std::string rowLabel(const TblRowG& row, size_t index) {
     return "#" + std::to_string(index);
 }
 
+struct LegacySlot { size_t off = 0; uint32_t w = 0; std::string type; };
+
+static std::map<std::string, LegacySlot> slotsOf(const TblSchemaDef& s) {
+    std::map<std::string, LegacySlot> m;
+    size_t o = 0;
+    for (const TblField& f : s.fields) {
+        uint32_t w = TblTypeWidth(f.type);
+        m[f.name] = LegacySlot{ o, w, f.type };
+        o += w;
+    }
+    return m;
+}
+
+template <class J>
+static TblValue jsonToValueT(const std::string& type, const J& jv) {
+    TblValue v;
+    if (TblTypeIsFloat(type)) {
+        v.kind = TblValue::K::Flt;
+        if (jv.is_number()) v.f = jv.template get<double>();
+    } else {
+        v.kind = TblValue::K::Int;
+        if (jv.is_number()) v.i = jv.template get<int64_t>();
+        else if (jv.is_boolean()) v.i = jv.template get<bool>() ? 1 : 0;
+    }
+    return v;
+}
+
+template <class J>
+static int upgradeLegacyT(const std::string& table, const TblSchemaDef& cur, const std::vector<J*>& objs,
+                          bool wholeRow, std::string& err) {
+    const uint32_t len = TblSchemaSize(cur);
+    std::vector<TblSchemaDef> legs;
+    if (len == 0 || !ResolveLegacyTblSchemas(table, len, legs)) return 0;
+    const auto C = slotsOf(cur);
+    auto fits = [](const std::string& t, const J& v) {
+        if (TblTypeIsToffset(t)) return v.is_string();
+        if (TblTypeIsArray(t) || TblTypeIsData(t)) return v.is_array();
+        return v.is_number() || v.is_boolean();
+    };
+    const TblSchemaDef* L = nullptr;
+    std::string legKey;
+    for (const TblSchemaDef& cand : legs) {
+        const auto Lc = slotsOf(cand);
+        for (J* o : objs) {
+            if (!o || !o->is_object()) continue;
+            for (auto it = o->begin(); it != o->end() && !L; ++it) {
+                auto lc = Lc.find(it.key());
+                if (lc == Lc.end()) continue;
+                auto cc = C.find(it.key());
+                if (cc == C.end() || (!fits(cc->second.type, it.value()) && fits(lc->second.type, it.value()))) { L = &cand; legKey = it.key(); }
+            }
+            if (L) break;
+        }
+        if (L) break;
+    }
+    if (!L) return 0;
+    const auto Lm = slotsOf(*L);
+    for (J* o : objs) {
+        if (!o || !o->is_object()) continue;
+        for (auto it = o->begin(); it != o->end(); ++it)
+            if (C.count(it.key()) && !Lm.count(it.key())) {
+                err = table + ": 新旧字段名混用(旧的 " + legKey + " 和新的 " + it.key() + ")";
+                return -1;
+            }
+    }
+    auto same = [&](const std::string& k) {
+        auto a = C.find(k), b = Lm.find(k);
+        return a != C.end() && b != Lm.end() && a->second.off == b->second.off && a->second.type == b->second.type;
+    };
+    for (J* o : objs) {
+        if (!o || !o->is_object()) continue;
+        std::vector<uint8_t> buf(len, 0);
+        std::vector<char> have(len, 0);
+        J out = J::object();
+        for (auto it = o->begin(); it != o->end(); ++it) {
+            const std::string& k = it.key();
+            auto lg = Lm.find(k);
+            if (lg == Lm.end() || same(k)) { out[k] = it.value(); continue; }
+            const LegacySlot& s = lg->second;
+            if (!TblTypeIsScalar(s.type) && !TblTypeIsFloat(s.type)) {
+                const std::string* to = nullptr;
+                for (const auto& kv : C)
+                    if (kv.second.off == s.off && kv.second.type == s.type) { to = &kv.first; break; }
+                if (!to) { err = table + ": 旧字段 " + k + "(" + s.type + ")挪过位置,换算不了"; return -1; }
+                out[*to] = it.value();
+                continue;
+            }
+            TblValue v = jsonToValueT(s.type, it.value());
+            if (TblTypeIsFloat(s.type)) { float fv = (float)v.f; std::memcpy(&buf[s.off], &fv, 4); }
+            else { uint64_t u = (uint64_t)v.i; for (uint32_t b = 0; b < s.w && b < 8; ++b) buf[s.off + b] = (uint8_t)(u >> (8 * b)); }
+            std::fill(have.begin() + s.off, have.begin() + s.off + s.w, (char)1);
+        }
+        if (wholeRow)
+            for (const auto& kv : Lm)
+                if (!same(kv.first) && (TblTypeIsScalar(kv.second.type) || TblTypeIsFloat(kv.second.type)))
+                    std::fill(have.begin() + kv.second.off, have.begin() + kv.second.off + kv.second.w, (char)1);
+        for (const TblField& f : cur.fields) {
+            if (same(f.name) || out.contains(f.name)) continue;
+            const LegacySlot& s = C.at(f.name);
+            size_t n = 0;
+            for (size_t b = s.off; b < s.off + s.w; ++b) n += have[b] ? 1 : 0;
+            if (n == 0) continue;
+            if (n < s.w) { err = table + ": 旧字段只写到新字段 " + f.name + " 的一部分,换算不了"; return -1; }
+            uint64_t raw = 0;
+            for (uint32_t b = 0; b < s.w && b < 8; ++b) raw |= (uint64_t)buf[s.off + b] << (8 * b);
+            if (TblTypeIsFloat(s.type)) {
+                float fv; std::memcpy(&fv, &buf[s.off], 4);
+                out[f.name] = (double)fv;
+            } else if (TblTypeIsScalar(s.type)) {
+                if (TblTypeIsSignedScalar(s.type) && s.w < 8 && (raw & (1ull << (s.w * 8 - 1)))) raw |= ~((1ull << (s.w * 8)) - 1);
+                out[f.name] = (int64_t)raw;
+            } else if (TblTypeIsToffset(s.type)) {
+                if (raw != 0) { err = table + ": 旧字段里 " + f.name + " 是旧文件的串偏移,换算不了,请照新字段名改写"; return -1; }
+                out[f.name] = "";
+            } else if (TblTypeIsArray(s.type)) {
+                uint32_t n2 = 0; std::memcpy(&n2, &buf[s.off + 8], 4);
+                if (n2 != 0) { err = table + ": 旧字段里 " + f.name + " 是旧文件的数组偏移,换算不了,请照新字段名改写"; return -1; }
+                out[f.name] = J::array();
+            } else {
+                err = table + ": 新字段 " + f.name + "(" + s.type + ")换算不了";
+                return -1;
+            }
+        }
+        *o = std::move(out);
+    }
+    return 1;
+}
+
+int UpgradeLegacyTblObjects(const std::string& table, const TblSchemaDef& cur,
+                            const std::vector<nlohmann::json*>& objs, bool wholeRow, std::string& err) {
+    return upgradeLegacyT(table, cur, objs, wholeRow, err);
+}
+int UpgradeLegacyTblObjects(const std::string& table, const TblSchemaDef& cur,
+                            const std::vector<nlohmann::ordered_json*>& objs, bool wholeRow, std::string& err) {
+    return upgradeLegacyT(table, cur, objs, wholeRow, err);
+}
+
 static TblTableG* findTable(TblFileG& g, const std::string& tableName, std::string& err) {
     if (g.tables.empty()) { err = "no tables in tbl"; return nullptr; }
     if (tableName.empty()) {
@@ -96,9 +235,16 @@ bool ApplyTblPatch(const std::vector<uint8_t>& orig, const std::wstring& schemas
         return nullptr;
     };
 
+    std::vector<json> addRowsU(addRows.begin(), addRows.end());
+    std::vector<EditOp> editsU(edits.begin(), edits.end());
+    for (json& jr : addRowsU)
+        if (UpgradeLegacyTblObjects(T->name, T->schema, std::vector<json*>{ &jr }, true, err) < 0) return false;
+    for (EditOp& ed : editsU)
+        if (UpgradeLegacyTblObjects(T->name, T->schema, std::vector<json*>{ &ed.match, &ed.set }, false, err) < 0) return false;
+
     struct LastWrite { std::string value; std::string mod; };
     std::map<const TblRowG*, std::map<std::string, LastWrite>> writeLog;
-    for (const EditOp& ed : edits) {
+    for (const EditOp& ed : editsU) {
         if (!ed.match.is_object()) continue;
         size_t rowIdx = 0;
         for (TblRowG& row : T->rows) {
@@ -132,7 +278,7 @@ bool ApplyTblPatch(const std::vector<uint8_t>& orig, const std::wstring& schemas
         }
     }
 
-    for (const json& jr : addRows) {
+    for (const json& jr : addRowsU) {
         if (!jr.is_object()) continue;
         TblRowG row;
         for (const TblField& f : T->schema.fields) {

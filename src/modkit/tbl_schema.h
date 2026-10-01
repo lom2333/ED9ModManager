@@ -42,5 +42,9 @@ std::string TblVariantGame(const std::string& tableName, uint32_t rowLength);
 
 std::string TblGameByFieldNames(const std::string& tableName, const std::vector<std::string>& fieldNames);
 
+bool ResolveLegacyTblSchemas(const std::string& tableName, uint32_t rowLength, std::vector<TblSchemaDef>& out);
+
+uint64_t TblSchemaFingerprint();
+
 }
 }

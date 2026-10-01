@@ -1,5 +1,6 @@
 #pragma once
 #include "json.hpp"
+#include "modkit/tbl_schema.h"
 
 #include <cstdint>
 #include <string>
@@ -41,6 +42,11 @@ bool CloneRowsPoolTable(const std::vector<uint8_t>& orig, const std::wstring& sc
                         std::vector<uint8_t>& out, std::string& err);
 
 std::string AliasNpcParamField(const std::string& key);
+
+int UpgradeLegacyTblObjects(const std::string& table, const TblSchemaDef& cur,
+                            const std::vector<nlohmann::json*>& objs, bool wholeRow, std::string& err);
+int UpgradeLegacyTblObjects(const std::string& table, const TblSchemaDef& cur,
+                            const std::vector<nlohmann::ordered_json*>& objs, bool wholeRow, std::string& err);
 
 }
 }
