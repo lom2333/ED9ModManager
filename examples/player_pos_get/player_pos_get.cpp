@@ -13,9 +13,9 @@ static volatile bool g_running = false;
 static unsigned g_poll_ms = 1000;
 static unsigned g_mgr_to_player = 0;
 static unsigned g_pos_off = 0;
-static unsigned g_hint_mgr = 0x640;
-static unsigned g_hint_pos = 0x290;
-static bool     g_hintPosChecked = false;
+static bool     g_pos_verified = false;
+static bool     g_pos_from_code = false;
+static unsigned g_hint_mgr = 0;
 static bool     g_persisted = false;
 static void* g_player_vt = nullptr;
 
@@ -31,6 +31,8 @@ static const float kMaxStepCap  = 100.0f;
 static const float kChangeEps   = 0.002f;
 static const float kMaxSmooth   = 0.60f;
 static const int   kMinCandN    = 24;
+static const int   kWindowRounds = 30;
+static const float kDeadRatio   = 0.5f;
 
 struct Cand {
     uint16_t off;
@@ -48,6 +50,10 @@ static int  g_candN = 0;
 static int  g_rounds = 0;
 static int  g_buildTries = 0;
 static int  g_badReads = 0;
+static void* g_track_player = nullptr;
+static float g_curLast[3] = {};
+static float g_curMoved = 0.0f;
+static bool  g_curHasLast = false;
 
 static bool ReadU64(const void* a, uintptr_t* out) {
     return g_api->safe_read(a, out, sizeof(*out)) != 0;
@@ -115,15 +121,34 @@ static float SpreadOf(const Cand& c) {
     return std::sqrt(dx * dx + dy * dy + dz * dz);
 }
 
+static void ResetWindow() {
+    g_candN = 0; g_rounds = 0;
+    g_curMoved = 0.0f; g_curHasLast = false;
+}
+
 static void ResetTracking() {
-    g_candN = 0; g_rounds = 0; g_buildTries = 0; g_badReads = 0;
-    g_pos_off = 0; g_persisted = false; g_hintPosChecked = false;
+    ResetWindow();
+    g_buildTries = 0; g_badReads = 0;
+    g_pos_off = 0; g_pos_verified = false; g_pos_from_code = false; g_persisted = false;
 }
 
 static void TrackCandidates(void* player) {
+    if (player != g_track_player) { g_track_player = player; g_buildTries = 0; ResetWindow(); }
+    else if (g_rounds >= kWindowRounds) ResetWindow();
     unsigned char buf[kPosScanMax + 16] = {};
     const unsigned n = ReadPlayerBlock(player, buf, sizeof(buf));
     if (n == 0) return;
+
+    if (g_pos_off != 0 && g_pos_off + 12 <= n) {
+        const float* v = reinterpret_cast<const float*>(buf + g_pos_off);
+        if (g_curHasLast) {
+            const float dx = v[0] - g_curLast[0], dy = v[1] - g_curLast[1], dz = v[2] - g_curLast[2];
+            const float d = std::sqrt(dx * dx + dy * dy + dz * dz);
+            if (std::isfinite(d)) g_curMoved += d;
+        }
+        memcpy(g_curLast, v, sizeof(g_curLast));
+        g_curHasLast = true;
+    }
 
     if (g_candN == 0) {
         for (unsigned o = kPosScanMin; o + 16 <= n && g_candN < kMaxCand; o += 4) {
@@ -190,28 +215,17 @@ static int BestCandidate() {
     return best;
 }
 
-static void DecidePosOffset(void* player) {
-    if (g_pos_off != 0 || g_rounds < kMinRounds) return;
-    unsigned char buf[kPosScanMax + 16] = {};
-    const unsigned n = ReadPlayerBlock(player, buf, sizeof(buf));
-    if (n == 0) return;
-
-    if (!g_hintPosChecked && g_hint_pos != 0) {
-        g_hintPosChecked = true;
+static void DecidePosOffset() {
+    if (g_pos_verified || g_rounds < kMinRounds) return;
+    if (g_pos_off != 0)
         for (int i = 0; i < g_candN; ++i)
-            if (g_cand[i].off == g_hint_pos && Qualifies(g_cand[i])) {
-                g_pos_off = g_hint_pos;
-                if (g_api->log != nullptr) {
-                    char b[96];
-                    _snprintf_s(b, sizeof(b), _TRUNCATE, "[PlayerPosGet] 沿用 ini 的 pos_offset = 0x%X(复核通过)", g_pos_off);
-                    g_api->log(b);
-                }
-                return;
-            }
-    }
+            if (g_cand[i].off == g_pos_off && Qualifies(g_cand[i])) { g_pos_verified = true; return; }
     const int best = BestCandidate();
     if (best < 0) return;
+    if (g_pos_off != 0 && g_curMoved >= kDeadRatio * g_cand[best].moved) return;
     g_pos_off = g_cand[best].off;
+    g_pos_verified = true;
+    g_pos_from_code = false;
     g_persisted = false;
     if (g_api->log != nullptr) {
         char b[160];
@@ -224,18 +238,19 @@ static void DecidePosOffset(void* player) {
 }
 
 static void PersistOnce() {
-    if (g_persisted || g_api->cfg_set_int == nullptr) return;
+    if (g_persisted || !g_pos_verified || g_api->cfg_set_int == nullptr) return;
     if (g_mgr_to_player == 0 || g_pos_off == 0) return;
     g_api->cfg_set_int("PlayerPosGet", "manager_to_player_offset", static_cast<int>(g_mgr_to_player));
     g_api->cfg_set_int("PlayerPosGet", "pos_offset", static_cast<int>(g_pos_off));
+    g_api->cfg_set_int("PlayerPosGet", "pos_verified", 1);
     g_persisted = true;
 }
 
-static bool ReadPlayerPos(float* out) {
+static bool ReadPlayerPos(float* out, bool track) {
     if (g_api == nullptr || g_api->safe_read == nullptr) return false;
     void* player = PlayerPtr();
     if (player == nullptr) return false;
-    if (g_pos_off == 0) { TrackCandidates(player); DecidePosOffset(player); }
+    if (track && !g_pos_verified) { TrackCandidates(player); DecidePosOffset(); }
     if (g_pos_off == 0) return false;
     if (g_api->safe_read(reinterpret_cast<char*>(player) + g_pos_off, out, sizeof(float) * 3) == 0) return false;
     bool bad = false;
@@ -265,9 +280,9 @@ static DWORD WINAPI ThreadMain(LPVOID) {
     char outpath[MAX_PATH] = {};
     GetOutPath(outpath, sizeof(outpath));
     while (g_running) {
-        Sleep(g_pos_off == 0 ? kAnchorPollMs : g_poll_ms);
+        Sleep(g_pos_verified ? g_poll_ms : kAnchorPollMs);
         float pos[3] = {0.0f, 0.0f, 0.0f};
-        const bool ok = ReadPlayerPos(pos);
+        const bool ok = ReadPlayerPos(pos, true);
         char line[176] = {};
         if (ok) {
             _snprintf_s(line, sizeof(line), _TRUNCATE, "X=%.2f  Y=%.2f  Z=%.2f   [mgr+0x%X, pos+0x%X]",
@@ -304,6 +319,9 @@ static void Cmd_Scan() {
     _snprintf_s(b, sizeof(b), _TRUNCATE,
                 "可读 0x%X 字节,候选 %d 个,采样 %d 轮(合格线: 轮数>=%d 位移>=%.0f 跨度>=%.0f 变化帧>=半数)\n",
                 n, g_candN, g_rounds, kMinRounds, kMinMoved, kMinSpread);
+    g_api->console_print(b);
+    _snprintf_s(b, sizeof(b), _TRUNCATE, "pos_offset = 0x%X  %s%s(本窗口这格挪动 %.1f)\n",
+                g_pos_off, g_pos_verified ? "已核实" : "未核实", g_pos_from_code ? "、游戏代码里读的" : "", g_curMoved);
     g_api->console_print(b);
 
     int idx[14]; int m = 0;
@@ -435,7 +453,7 @@ static void Cmd_Get(int argc, const char** argv) {
             g_api->console_print(buf);
             return;
         }
-        g_pos_off = o; g_persisted = false;
+        g_pos_off = o; g_pos_verified = true; g_pos_from_code = false; g_persisted = false;
         PersistOnce();
         _snprintf_s(buf, sizeof(buf), _TRUNCATE, "已手动指定 pos_offset = 0x%X 并写入 ini\n", o);
         g_api->console_print(buf);
@@ -446,9 +464,12 @@ static void Cmd_Get(int argc, const char** argv) {
         return;
     }
     float pos[3] = {0.0f, 0.0f, 0.0f};
-    if (ReadPlayerPos(pos)) {
-        _snprintf_s(buf, sizeof(buf), _TRUNCATE, "X=%.2f  Y=%.2f  Z=%.2f   [mgr+0x%X, pos+0x%X]\n",
-                    pos[0], pos[1], pos[2], g_mgr_to_player, g_pos_off);
+    if (ReadPlayerPos(pos, false)) {
+        const bool zero = pos[0] == 0.0f && pos[1] == 0.0f && pos[2] == 0.0f;
+        const bool unsure = !g_pos_verified && !g_pos_from_code;
+        _snprintf_s(buf, sizeof(buf), _TRUNCATE, "X=%.2f  Y=%.2f  Z=%.2f   [mgr+0x%X, pos+0x%X%s]%s\n",
+                    pos[0], pos[1], pos[2], g_mgr_to_player, g_pos_off, unsure ? " 未核实" : "",
+                    (zero && unsure) ? "  走几步再敲一次(边走边核实偏移)" : "");
     } else if (g_mgr_to_player != 0) {
         _snprintf_s(buf, sizeof(buf), _TRUNCATE,
                     "[..] 正在自锚定:边走边等(候选%d个,已采样%d轮/需%d轮),细节看 -get scan\n",
@@ -459,23 +480,116 @@ static void Cmd_Get(int argc, const char** argv) {
     g_api->console_print(buf);
 }
 
+static const unsigned kCodeChunk = 0x100000;
+static const unsigned kCodeOverlap = 64;
+
+static bool MatchSync(const unsigned char* p, size_t avail, unsigned* d_out) {
+    if (avail < 3 * 5 + 3 * 8 + 4) return false;
+    int sb = -1, a = 0;
+    for (int k = 0; k < 3; ++k, p += 5) {
+        if (p[0] != 0xF3 || p[1] != 0x0F || p[2] != 0x10) return false;
+        const int m = p[3];
+        if ((m >> 6) != 1 || (m & 7) == 4 || ((m >> 3) & 7) != k) return false;
+        const int disp = static_cast<signed char>(p[4]);
+        if (k == 0) { sb = m & 7; a = disp; }
+        else if ((m & 7) != sb || disp != a + 4 * k) return false;
+    }
+    int db = -1;
+    int32_t d = 0;
+    for (int k = 0; k < 3; ++k, p += 8) {
+        if (p[0] != 0xF3 || p[1] != 0x0F || p[2] != 0x11) return false;
+        const int m = p[3];
+        if ((m >> 6) != 2 || (m & 7) == 4 || ((m >> 3) & 7) != k) return false;
+        int32_t disp = 0;
+        memcpy(&disp, p + 4, 4);
+        if (k == 0) { db = m & 7; d = disp; }
+        else if ((m & 7) != db || disp != d + 4 * k) return false;
+    }
+    if (p[0] != 0x48 || p[1] != 0x8B || (p[2] >> 6) != 1 || (p[2] & 7) != db) return false;
+    *d_out = static_cast<unsigned>(d);
+    return true;
+}
+
+static unsigned PosOffsetFromCode() {
+    if (g_api->get_module_base == nullptr || g_api->safe_read == nullptr) return 0;
+    const unsigned char* mod = static_cast<const unsigned char*>(g_api->get_module_base());
+    if (mod == nullptr) return 0;
+    IMAGE_DOS_HEADER dos = {};
+    IMAGE_NT_HEADERS64 nt = {};
+    if (g_api->safe_read(mod, &dos, sizeof(dos)) == 0 || dos.e_magic != IMAGE_DOS_SIGNATURE) return 0;
+    if (g_api->safe_read(mod + dos.e_lfanew, &nt, sizeof(nt)) == 0 || nt.Signature != IMAGE_NT_SIGNATURE) return 0;
+    const unsigned char* sec = mod + dos.e_lfanew + 4 + sizeof(IMAGE_FILE_HEADER) + nt.FileHeader.SizeOfOptionalHeader;
+    static unsigned char buf[kCodeChunk + kCodeOverlap];
+    unsigned found = 0;
+    int hits = 0;
+    for (unsigned i = 0; i < static_cast<unsigned>(nt.FileHeader.NumberOfSections); ++i) {
+        IMAGE_SECTION_HEADER sh = {};
+        if (g_api->safe_read(sec + i * sizeof(sh), &sh, sizeof(sh)) == 0) return 0;
+        if ((sh.Characteristics & IMAGE_SCN_MEM_EXECUTE) == 0) continue;
+        const unsigned size = sh.Misc.VirtualSize;
+        for (unsigned off = 0; off < size; off += kCodeChunk) {
+            const unsigned n = (size - off < kCodeChunk + kCodeOverlap) ? size - off : kCodeChunk + kCodeOverlap;
+            if (g_api->safe_read(mod + sh.VirtualAddress + off, buf, n) == 0) return 0;
+            const unsigned lim = (n < kCodeChunk) ? n : kCodeChunk;
+            for (unsigned j = 0; j < lim; ++j) {
+                const void* q = memchr(buf + j, 0xF3, lim - j);
+                if (q == nullptr) break;
+                j = static_cast<unsigned>(static_cast<const unsigned char*>(q) - buf);
+                unsigned d = 0;
+                if (MatchSync(buf + j, n - j, &d)) { found = d; ++hits; }
+            }
+        }
+    }
+    if (hits != 1 || found < kPosScanMin || found + 12 > kPosScanMax || (found & 3) != 0) return 0;
+    return found;
+}
+
+static int GameDefaults(unsigned* mgr, unsigned* pos) {
+    char exe[MAX_PATH] = {};
+    GetModuleFileNameA(nullptr, exe, MAX_PATH);
+    const char* name = strrchr(exe, '\\');
+    name = (name != nullptr) ? name + 1 : exe;
+    *mgr = 0; *pos = 0;
+    if (_stricmp(name, "sora_1st.exe") == 0) { *mgr = 0x640; *pos = 0x290; return 1; }
+    if (_stricmp(name, "sora_2nd.exe") == 0) { *mgr = 0x660; *pos = 0x2C0; return 2; }
+    return 0;
+}
+
 extern "C" __declspec(dllexport) void Plugin_Load(const Ed9Api* api) {
     if (api == nullptr || api->log == nullptr) return;
     if (api->abi_version < 5) return;
     g_api = api;
 
+    unsigned def_mgr = 0, def_pos = 0;
+    const int game = GameDefaults(&def_mgr, &def_pos);
+    g_hint_mgr = def_mgr;
+    g_pos_off  = def_pos;
+    bool from_ini = false;
     if (api->cfg_get_int != nullptr) {
-        g_poll_ms  = static_cast<unsigned>(api->cfg_get_int("PlayerPosGet", "poll_ms", 1000));
-        g_hint_mgr = static_cast<unsigned>(api->cfg_get_int("PlayerPosGet", "manager_to_player_offset", 0x640));
-        g_hint_pos = static_cast<unsigned>(api->cfg_get_int("PlayerPosGet", "pos_offset", 0x290));
-        if (api->cfg_set_int != nullptr) api->cfg_set_int("PlayerPosGet", "poll_ms", static_cast<int>(g_poll_ms));
-        if (g_hint_pos != 0) {
-            g_pos_off = g_hint_pos;
-            g_hintPosChecked = true;
-            char b[96];
-            _snprintf_s(b, sizeof(b), _TRUNCATE, "[PlayerPosGet] 采用 ini 的 pos_offset = 0x%X", g_pos_off);
-            api->log(b);
+        g_poll_ms = static_cast<unsigned>(api->cfg_get_int("PlayerPosGet", "poll_ms", 1000));
+        const unsigned ini_mgr = static_cast<unsigned>(api->cfg_get_int("PlayerPosGet", "manager_to_player_offset", 0));
+        const unsigned ini_pos = static_cast<unsigned>(api->cfg_get_int("PlayerPosGet", "pos_offset", 0));
+        if (ini_mgr != 0) g_hint_mgr = ini_mgr;
+        if (ini_pos != 0 && (api->cfg_get_int("PlayerPosGet", "pos_verified", 0) == 1 || def_pos == 0)) {
+            g_pos_off = ini_pos;
+            from_ini = true;
         }
+        if (api->cfg_set_int != nullptr) api->cfg_set_int("PlayerPosGet", "poll_ms", static_cast<int>(g_poll_ms));
+    }
+    const char* from = from_ini ? " ini " : "默认";
+    const unsigned code_pos = PosOffsetFromCode();
+    if (code_pos != 0) {
+        g_pos_off = code_pos;
+        g_pos_from_code = true;
+        g_pos_verified = true;
+        from = "游戏代码里";
+    } else if (game == 2) {
+        api->log("[PlayerPosGet] 这个游戏版本里没认出坐标位置,先按老位置读,走几步会自己找回");
+    }
+    if (g_pos_off != 0) {
+        char b[96];
+        _snprintf_s(b, sizeof(b), _TRUNCATE, "[PlayerPosGet] 采用%s的 pos_offset = 0x%X", from, g_pos_off);
+        api->log(b);
     }
     g_player_vt = (api->find_vtable != nullptr) ? api->find_vtable("Player@fieldmap@sora") : nullptr;
     if (g_player_vt == nullptr) api->log("[PlayerPosGet] 警告:没拿到 Player vtable,无法自锚定");

@@ -48,7 +48,7 @@ using ojson = nlohmann::ordered_json;
 
 static float g_dpiScale = 1.0f;
 
-static const char* kVersion = "1.1.1";
+static const char* kVersion = "1.1.2";
 static const wchar_t* kUpdateHost = L"api.github.com";
 static const wchar_t* kUpdatePath = L"/repos/lom2333/ED9ModManager/releases/latest";
 
@@ -215,8 +215,11 @@ struct App {
     bool showEnableWarn = false;
     json report;
     bool hasReport = false;
+    std::map<std::string, std::set<std::string>> composedDds;
     std::string status = "就绪。设置游戏目录后会自动扫描,并持续监听 Mod 目录变动。";
     std::string mergeLog;
+    std::string mergeLogTr, mergeLogTrFor;
+    std::vector<std::pair<std::string, std::string>> langList;
     bool busy = false;
     int funcView = 0;
     bool showSettings = false;
@@ -245,6 +248,8 @@ struct App {
     std::vector<AssetRow> selAni;
     std::vector<AssetRow> selVfx;
     std::vector<AudioGroup> audioGroups;
+    std::set<std::string> selLangs;
+    bool selLangAll = true;
     std::set<std::string> conflictMods;
     std::set<std::string> errorMods;
     std::string conflictSig;
@@ -277,18 +282,53 @@ static fs::path iniPath() { return exeDir() / "mod_manager.ini"; }
 
 static std::map<std::string, std::string> g_tr;
 static std::string g_langCode = "zh_CN";
+struct TrTpl { std::vector<std::string> parts; std::string to; };
+static std::vector<TrTpl> g_trTpl;
 static fs::path langDir() { return exeDir() / "language"; }
 static const char* T(const char* s) {
     auto it = g_tr.find(s);
     return it != g_tr.end() ? it->second.c_str() : s;
 }
+static std::wstring TW(const wchar_t* s) {
+    auto it = g_tr.find(ws2utf8(s));
+    return it != g_tr.end() ? utf82ws(it->second) : std::wstring(s);
+}
+static std::wstring dlgFilter(std::initializer_list<std::pair<const char*, const wchar_t*>> items) {
+    std::wstring f;
+    for (const auto& it : items) { f += utf82ws(T(it.first)); f.push_back(L'\0'); f += it.second; f.push_back(L'\0'); }
+    f.push_back(L'\0');
+    return f;
+}
+static void registerImGuiLocalization();
 static void loadLanguage(const std::string& code) {
-    g_tr.clear(); g_langCode = code.empty() ? "zh_CN" : code;
+    g_tr.clear(); g_trTpl.clear(); g_langCode = code.empty() ? "zh_CN" : code;
     json j;
     if (readJson(langDir() / (g_langCode + ".json"), j) && j.is_object())
-        for (auto it = j.begin(); it != j.end(); ++it)
-            if (!it.key().empty() && it.key()[0] != '_' && it.value().is_string())
-                g_tr[it.key()] = it.value().get<std::string>();
+        for (auto it = j.begin(); it != j.end(); ++it) {
+            if (it.key().empty() || it.key()[0] == '_' || !it.value().is_string()) continue;
+            g_tr[it.key()] = it.value().get<std::string>();
+            if (it.key().find("{}") == std::string::npos) continue;
+            TrTpl tp; tp.to = it.value().get<std::string>();
+            size_t p = 0, q;
+            while ((q = it.key().find("{}", p)) != std::string::npos) { tp.parts.push_back(it.key().substr(p, q - p)); p = q + 2; }
+            tp.parts.push_back(it.key().substr(p));
+            g_trTpl.push_back(std::move(tp));
+        }
+    registerImGuiLocalization();
+}
+static std::string defaultLangCode() {
+    const LANGID id = GetUserDefaultUILanguage();
+    const WORD prim = PRIMARYLANGID(id), sub = SUBLANGID(id);
+    std::string code = "en";
+    if (prim == LANG_CHINESE) code = (sub == SUBLANG_CHINESE_SIMPLIFIED || sub == SUBLANG_CHINESE_SINGAPORE) ? "zh_CN" : "zh_TW";
+    else if (prim == LANG_JAPANESE) code = "ja";
+    else if (prim == LANG_KOREAN)   code = "ko";
+    else if (prim == LANG_GERMAN)   code = "de";
+    else if (prim == LANG_FRENCH)   code = "fr";
+    else if (prim == LANG_SPANISH)  code = "es";
+    std::error_code ec;
+    if (code != "zh_CN" && !fs::exists(langDir() / (code + ".json"), ec)) code = "zh_CN";
+    return code;
 }
 static std::vector<std::pair<std::string, std::string>> scanLanguages() {
     std::vector<std::pair<std::string, std::string>> out;
@@ -301,18 +341,53 @@ static std::vector<std::pair<std::string, std::string>> scanLanguages() {
                 if (readJson(e.path(), j) && j.contains("_name") && j["_name"].is_string()) name = j["_name"].get<std::string>();
                 out.push_back({ code, name });
             }
-    std::sort(out.begin(), out.end(), [](const auto& a, const auto& b){ return a.first < b.first; });
+    static const char* const kOrder[] = { "zh_CN", "zh_TW", "ja", "ko", "en", "de", "fr", "es" };
+    auto rank = [](const std::string& c) {
+        for (size_t i = 0; i < std::size(kOrder); ++i) if (c == kOrder[i]) return (int)i;
+        return (int)std::size(kOrder);
+    };
+    std::sort(out.begin(), out.end(), [&](const auto& a, const auto& b) {
+        const int ra = rank(a.first), rb = rank(b.first);
+        return ra != rb ? ra < rb : a.first < b.first;
+    });
     return out;
 }
 
+static bool applyTpl(const TrTpl& tp, const std::string& s, std::string& out) {
+    if (tp.parts.size() < 2 || s.compare(0, tp.parts[0].size(), tp.parts[0]) != 0) return false;
+    std::vector<std::string> vals;
+    size_t pos = tp.parts[0].size();
+    for (size_t i = 1; i < tp.parts.size(); ++i) {
+        const std::string& lit = tp.parts[i];
+        size_t q;
+        if (i + 1 == tp.parts.size()) {
+            if (s.size() < pos + lit.size() || s.compare(s.size() - lit.size(), lit.size(), lit) != 0) return false;
+            q = s.size() - lit.size();
+        } else if (lit.empty() || (q = s.find(lit, pos)) == std::string::npos) return false;
+        vals.push_back(s.substr(pos, q - pos));
+        pos = q + lit.size();
+    }
+    out.clear();
+    size_t p = 0, k = 0, q;
+    while ((q = tp.to.find("{}", p)) != std::string::npos) { out += tp.to.substr(p, q - p); if (k < vals.size()) out += vals[k++]; p = q + 2; }
+    out += tp.to.substr(p);
+    return true;
+}
 static std::string trErr(const std::string& s) {
     if (s.empty()) return s;
     const char* t = T(s.c_str());
     if (t != s.c_str()) return t;
+    std::string out;
+    for (const auto& tp : g_trTpl) if (applyTpl(tp, s, out)) return out;
     static const char* frags[] = {
-        "缺对话 dat:", "无法打开 ", "复制失败: ", "dat 替换 ", "table 替换 ", "(检查游戏 pac\\steam)"
+        "缺对话 dat:", "无法打开 ", "复制失败: ", "dat 替换 ", "table 替换 ", "(检查游戏 pac\\steam)",
+        "动作脚本 ", "自定义角色 ", "道具 ", " (覆盖其它)", "(按块合成)", " [winner,整文件]", " 没列入:",
+        " 不能按块合成(", "),照旧整文件", " 不是 #scp 脚本(或读不到): ", "(开头不是 JSON)",
+        " 不是认得的语言子目录(jp / sc / tc / ko / kr / en / de / fr / es),没用上", " 本作没有这种语言,没用上",
+        ":这几种语言没有对话 dat,进图加载不到:", ":这几种语言的 script pac 里没有它,没打:",
+        " 处插入, ", " 个语言)", " 记录槽 ", " 无对话 dat(放 Mod\\",
     };
-    std::string out = s;
+    out = s;
     for (const char* fr : frags) {
         const char* tr = T(fr);
         if (tr == fr) continue;
@@ -320,6 +395,107 @@ static std::string trErr(const std::string& s) {
         while ((p = out.find(fr, p)) != std::string::npos) { out.replace(p, flen, tr); p += std::strlen(tr); }
     }
     return out;
+}
+static std::string trLines(const std::string& s) {
+    std::string out;
+    size_t p = 0;
+    while (p <= s.size()) {
+        size_t q = s.find('\n', p);
+        if (q == std::string::npos) q = s.size();
+        out += trErr(s.substr(p, q - p));
+        if (q < s.size()) out += '\n';
+        p = q + 1;
+    }
+    return out;
+}
+
+static ImGuiContext* g_pacCtx = nullptr;
+static void registerImGuiLocalization() {
+    static std::string s[7];
+    s[0] = std::string(T("调整本列宽度以适合内容")) + "###SizeOne";
+    s[1] = std::string(T("调整所有列宽度以适合内容")) + "###SizeAll";
+    s[2] = std::string(T("所有列恢复默认宽度")) + "###SizeAll";
+    s[3] = std::string(T("恢复默认列顺序")) + "###ResetOrder";
+    s[4] = T("(主菜单栏)");
+    s[5] = T("(弹出窗口)");
+    s[6] = T("(未命名)");
+    const ImGuiLocEntry e[] = {
+        { ImGuiLocKey_TableSizeOne, s[0].c_str() }, { ImGuiLocKey_TableSizeAllFit, s[1].c_str() },
+        { ImGuiLocKey_TableSizeAllDefault, s[2].c_str() }, { ImGuiLocKey_TableResetOrder, s[3].c_str() },
+        { ImGuiLocKey_WindowingMainMenuBar, s[4].c_str() }, { ImGuiLocKey_WindowingPopup, s[5].c_str() },
+        { ImGuiLocKey_WindowingUntitled, s[6].c_str() },
+    };
+    ImGuiContext* cur = ImGui::GetCurrentContext();
+    if (cur != nullptr) ImGui::LocalizeRegisterEntries(e, IM_ARRAYSIZE(e));
+    if (g_pacCtx != nullptr && g_pacCtx != cur) {
+        ImGui::SetCurrentContext(g_pacCtx);
+        ImGui::LocalizeRegisterEntries(e, IM_ARRAYSIZE(e));
+        ImGui::SetCurrentContext(cur);
+    }
+}
+
+static std::string g_langGlyphs;
+static void collectLangGlyphs(const char* gameDirUtf8) {
+    g_langGlyphs.clear();
+    std::error_code ec;
+    if (fs::is_directory(langDir(), ec))
+        for (const auto& e : fs::directory_iterator(langDir(), ec)) {
+            if (!e.is_regular_file() || e.path().extension() != L".json") continue;
+            json j; if (!readJson(e.path(), j) || !j.is_object()) continue;
+            for (auto it = j.begin(); it != j.end(); ++it) if (it.value().is_string()) g_langGlyphs += it.value().get<std::string>();
+        }
+    if (gameDirUtf8 != nullptr && gameDirUtf8[0] != 0) {
+        g_langGlyphs += gameDirUtf8;
+        const fs::path mods = fs::path(utf82ws(gameDirUtf8)) / L"Mod";
+        if (fs::is_directory(mods, ec))
+            for (const auto& e : fs::directory_iterator(mods, ec)) g_langGlyphs += ws2utf8(e.path().filename().wstring());
+    }
+}
+static void buildHangulRanges(ImVector<ImWchar>& out) {
+    ImFontGlyphRangesBuilder gb;
+    const unsigned char* p = reinterpret_cast<const unsigned char*>(g_langGlyphs.c_str());
+    while (*p) {
+        unsigned cp = *p, n = 0;
+        if (cp < 0x80) n = 0; else if ((cp >> 5) == 6) { cp &= 0x1F; n = 1; } else if ((cp >> 4) == 14) { cp &= 0x0F; n = 2; } else if ((cp >> 3) == 30) { cp &= 0x07; n = 3; } else { ++p; continue; }
+        ++p;
+        for (unsigned i = 0; i < n && (*p & 0xC0) == 0x80; ++i, ++p) cp = (cp << 6) | (*p & 0x3F);
+        const bool hangul = (cp >= 0xAC00 && cp <= 0xD7A3) || (cp >= 0x1100 && cp <= 0x11FF) || (cp >= 0x3130 && cp <= 0x318F)
+                         || (cp >= 0xA960 && cp <= 0xA97F) || (cp >= 0xD7B0 && cp <= 0xD7FF);
+        if (hangul) gb.AddChar((ImWchar)cp);
+    }
+    gb.AddChar(0xAC00);
+    gb.BuildRanges(&out);
+}
+static void mergeHangul(ImGuiIO& io, float px, const ImVector<ImWchar>& ranges) {
+    if (GetFileAttributesW(L"C:\\Windows\\Fonts\\malgun.ttf") == INVALID_FILE_ATTRIBUTES) return;
+    ImFontConfig mc;
+    mc.MergeMode = true;
+    mc.OversampleH = 1;
+    io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\malgun.ttf", px, &mc, ranges.Data);
+}
+
+static const char* const kModLangDirs[] = { "jp", "sc", "tc", "kr", "ko", "en", "de", "fr", "es" };
+static const char* langDirLabel(const std::string& d) {
+    if (d == "jp") return "[日] ";
+    if (d == "sc") return "[简中] ";
+    if (d == "tc") return "[繁中] ";
+    if (d == "kr" || d == "ko") return "[韩] ";
+    if (d == "en") return "[英] ";
+    if (d == "de") return "[德] ";
+    if (d == "fr") return "[法] ";
+    if (d == "es") return "[西] ";
+    return "";
+}
+static const char* langCodeName(const std::string& c) {
+    if (c == "jp") return "日语";
+    if (c == "sc") return "简中";
+    if (c == "tc") return "繁中";
+    if (c == "kr" || c == "ko") return "韩语";
+    if (c == "en") return "英语";
+    if (c == "de") return "德语";
+    if (c == "fr") return "法语";
+    if (c == "es") return "西语";
+    return "";
 }
 
 static void loadIniGameDir(App& a) {
@@ -335,7 +511,8 @@ static void loadIniGameDir(App& a) {
         fs::path ed = exeDir();
         if (ed.filename() == L"ED9Loader") { std::string g = ws2utf8(ed.parent_path().wstring()); strncpy_s(a.gameDir, g.c_str(), _TRUNCATE); }
     }
-    loadLanguage(lang);
+    loadLanguage(lang.empty() ? defaultLangCode() : lang);
+    a.status = T("就绪。设置游戏目录后会自动扫描,并持续监听 Mod 目录变动。");
 }
 static void saveIniGameDir(const App& a) {
     std::ofstream f(iniPath(), std::ios::binary);
@@ -363,8 +540,29 @@ static std::string detectGameId(const char* gameDirUtf8) {
     return {};
 }
 static const char* gameDisplay(const std::string& id) {
-    for (const auto& g : kGames) if (id == g.id) return g.disp;
+    for (const auto& g : kGames) if (id == g.id) return T(g.disp);
     return "";
+}
+
+static const std::set<std::string>& gameLangs(const App& a) {
+    static std::string forDir;
+    static std::set<std::string> langs;
+    if (forDir != a.gameDir) {
+        forDir = a.gameDir;
+        langs.clear();
+        std::error_code ec;
+        const fs::path pac = fs::path(utf82ws(a.gameDir)) / L"pac" / L"steam";
+        if (fs::exists(pac / L"table.pac", ec) && fs::exists(pac / L"script.pac", ec)) langs.insert("jp");
+        for (const char* c : { "sc", "tc", "ko", "kr", "en", "de", "fr", "es" })
+            if (fs::exists(pac / (std::wstring(L"table_") + utf82ws(c) + L".pac"), ec)) langs.insert(c);
+    }
+    return langs;
+}
+static std::string modLangCode(const App& a, const std::string& dir) {
+    const auto& gl = gameLangs(a);
+    if (gl.empty()) return (dir == "kr") ? "ko" : dir;
+    if (dir == "kr" || dir == "ko") return gl.count("ko") ? "ko" : (gl.count("kr") ? "kr" : "");
+    return gl.count(dir) ? dir : "";
 }
 static fs::path modMetaPath(const App& a, const std::string& modName) {
     return modRootOf(a, modName) / L"mod.json";
@@ -463,9 +661,24 @@ static std::string resolveModGame(const App& a, const std::string& modName, ModG
 
 static void loadReport(App& a) {
     a.hasReport = readJson(reportPathOf(a), a.report);
+    a.composedDds.clear();
+    if (a.hasReport && a.report.is_object())
+        for (const auto& e : a.report.value("assets", json::array()))
+            if (e.is_object() && e.contains("composed") && e["composed"].is_boolean() && e["composed"].get<bool>() &&
+                e.contains("name") && e["name"].is_string()) {
+                auto& mods = a.composedDds[e["name"].get<std::string>()];
+                for (const auto& mn : e.value("mods", json::array()))
+                    if (mn.is_string()) mods.insert(mn.get<std::string>());
+            }
+    a.conflictSig.clear();
+}
+
+static bool isComposed(const App& a, const std::string& rel, const std::vector<std::string>& providers) {
+    auto it = a.composedDds.find(rel);
+    return it != a.composedDds.end() && it->second == std::set<std::string>(providers.begin(), providers.end());
 }
 static void refresh(App& a) {
-    if (a.gameDir[0] == 0) { a.status = "请先填游戏目录。"; return; }
+    if (a.gameDir[0] == 0) { a.status = T("请先填游戏目录。"); return; }
     a.gameId = detectGameId(a.gameDir);
     {
       std::string alog;
@@ -482,8 +695,10 @@ static void refresh(App& a) {
         const std::string& g = a.modGame[m.name];
         if (!g.empty() && !a.gameId.empty() && g != a.gameId) ++mismatch;
     }
-    a.status = "已扫描:" + std::to_string(a.mods.size()) + " 个 mod" +
-               (mismatch ? ("(其中 " + std::to_string(mismatch) + " 个不适用于当前游戏)") : "");
+    char b[200];
+    if (mismatch) snprintf(b, sizeof b, T("已扫描:%d 个 mod(其中 %d 个不适用于当前游戏)"), (int)a.mods.size(), mismatch);
+    else          snprintf(b, sizeof b, T("已扫描:%d 个 mod"), (int)a.mods.size());
+    a.status = b;
 }
 
 static void closeWatch(App& a) {
@@ -514,7 +729,7 @@ static void autoRescan(App& a) {
     a.modGame.clear();
     for (const auto& m : a.mods) a.modGame[m.name] = resolveModGame(a, m.name);
     loadReport(a);
-    if (changed) a.status = "检测到 Mod 目录变动,已自动重扫:" + std::to_string(a.mods.size()) + " 个 mod";
+    if (changed) { char b[200]; snprintf(b, sizeof b, T("检测到 Mod 目录变动,已自动重扫:%d 个 mod"), (int)a.mods.size()); a.status = b; }
 }
 
 static void pollWatch(App& a) {
@@ -568,7 +783,13 @@ static std::string entryNote(const json& e) {
     return {};
 }
 
+static const std::map<std::string, std::string>& friendlyTableMap();
 static std::string friendlyTableName(const std::string& schema) {
+    const auto& kMap = friendlyTableMap();
+    auto it = kMap.find(schema);
+    return it != kMap.end() ? it->second : schema;
+}
+static const std::map<std::string, std::string>& friendlyTableMap() {
     static const std::map<std::string, std::string> kMap = {
         {"VoiceTableData","语音配置"}, {"ActiveVoiceTableData","主动语音配置"}, {"BTLVoiceTable","战斗语音配置"}, {"QuestReportVoice","任务汇报语音"},
         {"BGMTableData","BGM配置"}, {"MapBGM","地图BGM"}, {"BattleBGM","战斗BGM"}, {"SETableData","音效配置"},
@@ -590,18 +811,18 @@ static std::string friendlyTableName(const std::string& schema) {
         {"AchievementTableData","成就配置"}, {"AchievementCategoryData","成就分类"}, {"BooksTitle","书籍标题"}, {"BooksText","书籍内容"}, {"BooksCategory","书籍分类"},
         {"ConstantValue","常量配置"}, {"DLCTableData","DLC配置"},
     };
-    auto it = kMap.find(schema);
-    return it != kMap.end() ? it->second : schema;
+    return kMap;
 }
 
 static void expandTblJson(const fs::path& p, const std::string& relFile, const std::string& groupPrefix, std::vector<ModComp>& out) {
     json j; if (!readJson(p, j)) {
-        out.push_back({ groupPrefix + ws2utf8(p.stem().wstring()) + " (解析失败)", relFile, "改", "(JSON 解析失败)", "", groupPrefix + ws2utf8(p.stem().wstring()) + " (解析失败)" });
+        const std::string bad = groupPrefix + ws2utf8(p.stem().wstring()) + T(" (解析失败)");
+        out.push_back({ bad, relFile, "改", T("(JSON 解析失败)"), "", bad });
         return;
     }
     std::string table = j.value("table", std::string());
     std::string stem = ws2utf8(p.stem().wstring());
-    std::string fr = friendlyTableName(table);
+    std::string fr = T(friendlyTableName(table).c_str());
     std::string file = groupPrefix + stem + (table.empty() ? "" : " · " + fr);
     std::string disp = groupPrefix + (table.empty() ? stem : fr);
     struct Sec { const char* key; const char* kind; };
@@ -615,7 +836,7 @@ static void expandTblJson(const fs::path& p, const std::string& relFile, const s
                 label = note.empty() ? briefJson(e.value("match", json::object())) : note;
                 detail = briefJson(e.value("match", json::object())) + " -> " + briefJson(e.value("set", json::object()));
             } else if (std::string(s.key) == "add_npc") {
-                label = note.empty() ? (e.is_object() && e.contains("name") ? briefJson(e["name"]) : "新 NPC") : note;
+                label = note.empty() ? (e.is_object() && e.contains("name") ? briefJson(e["name"]) : T("新 NPC")) : note;
                 detail = briefJson(e);
             } else {
                 label = note.empty() ? briefJson(e) : note;
@@ -629,23 +850,45 @@ static void expandTblJson(const fs::path& p, const std::string& relFile, const s
 static std::vector<ModComp> scanModComponents(const App& a, const std::string& modName) {
     std::vector<ModComp> out;
     std::error_code ec;
-    struct Folder { const wchar_t* sub; const char* rel; const char* label; };
-    static const Folder kFolders[] = {
-        { L"tbl",    "tbl",    "" },
-        { L"tbl/sc", "tbl/sc", "[简中] " },
-        { L"tbl/tc", "tbl/tc", "[繁中] " },
-        { L"tbl/kr", "tbl/kr", "[韩] " },
-    };
-    for (const Folder& f : kFolders) {
-        fs::path d = modRootOf(a, modName) / f.sub;
+    std::vector<std::string> folders = { "" };
+    for (const char* d : kModLangDirs) folders.push_back(d);
+    for (const std::string& f : folders) {
+        fs::path d = modRootOf(a, modName) / L"tbl";
+        if (!f.empty()) d /= utf82ws(f);
         if (!fs::is_directory(d, ec)) continue;
         std::vector<fs::path> tfs;
         for (const auto& e : fs::directory_iterator(d, ec))
             if (e.is_regular_file() && e.path().extension() == L".json") tfs.push_back(e.path());
         std::sort(tfs.begin(), tfs.end());
+        std::string label = f.empty() ? std::string() : std::string(T(langDirLabel(f)));
+        if (!f.empty() && modLangCode(a, f).empty()) label += T("(本作没有此语言) ");
+        const std::string rel = f.empty() ? std::string("tbl") : ("tbl/" + f);
         for (auto& p : tfs)
-            expandTblJson(p, std::string(f.rel) + "/" + p.filename().generic_string(), T(f.label), out);
+            expandTblJson(p, rel + "/" + p.filename().generic_string(), label, out);
     }
+    return out;
+}
+
+static std::set<std::string> modLangSet(const App& a, const std::string& modName, bool& all) {
+    std::set<std::string> out;
+    bool hasLangDir = false;
+    std::error_code ec;
+    const fs::path root = modRootOf(a, modName);
+    static const std::pair<const wchar_t*, const wchar_t*> kCh[] = {
+        { L"tbl", L".json" }, { L"dat", L".dat" }, { L"ai", L".dat" }, { L"ani", L".dat" }, { L"table", L".tbl" } };
+    for (const auto& ch : kCh)
+        for (const char* d : kModLangDirs) {
+            const fs::path dir = root / ch.first / utf82ws(d);
+            if (!fs::is_directory(dir, ec)) continue;
+            bool any = false;
+            for (const auto& e : fs::directory_iterator(dir, ec))
+                if (e.is_regular_file(ec) && e.path().extension() == ch.second) { any = true; break; }
+            if (!any) continue;
+            hasLangDir = true;
+            const std::string c = modLangCode(a, d);
+            if (!c.empty()) out.insert(c);
+        }
+    all = !hasLangDir;
     return out;
 }
 
@@ -667,7 +910,9 @@ static std::vector<std::string> scanModScriptRels(const App& a, const std::strin
     std::vector<std::string> out;
     std::error_code ec;
     const fs::path top = modRootOf(a, modName) / sub;
-    for (const char* lang : { "", "sc", "tc", "kr" }) {
+    std::vector<const char*> langs = { "" };
+    for (const char* d : kModLangDirs) langs.push_back(d);
+    for (const char* lang : langs) {
         const fs::path d = lang[0] ? top / lang : top;
         if (!fs::is_directory(d, ec)) continue;
         for (const auto& e : fs::directory_iterator(d, ec))
@@ -789,12 +1034,13 @@ static void updateLeftIndicators(App& a) {
             for (const auto& rel : scanModVfxRels(a, m.name)) prov[rel].push_back(m.name);
         }
         for (const auto& kv : prov)
-            if (kv.second.size() > 1) for (const auto& mn : kv.second) a.conflictMods.insert(mn);
+            if (kv.second.size() > 1 && !isComposed(a, kv.first, kv.second))
+                for (const auto& mn : kv.second) a.conflictMods.insert(mn);
     }
 }
 
 static void doMerge(App& a) {
-    if (a.gameDir[0] == 0) { a.status = "请先填游戏目录。"; return; }
+    if (a.gameDir[0] == 0) { a.status = T("请先填游戏目录。"); return; }
     {
         std::vector<std::string> bad;
         for (const auto& m : a.mods) {
@@ -810,12 +1056,12 @@ static void doMerge(App& a) {
             return;
         }
     }
-    if (!orch::SaveMods(modsDirOf(a).wstring(), a.mods)) { a.status = "写 mods.json 失败(目录不可写?)"; return; }
+    if (!orch::SaveMods(modsDirOf(a).wstring(), a.mods)) { a.status = T("写 mods.json 失败(目录不可写?)"); return; }
     orch::Paths paths = orch::FromGameDir(utf82ws(a.gameDir));
     orch::RunResult r = orch::Run(paths, true);
     a.mergeLog = r.log;
     loadReport(a);
-    a.status = "保存成功";
+    a.status = T("保存成功");
 }
 
 static bool browseFolder(std::wstring& out, const wchar_t* title) {
@@ -898,18 +1144,18 @@ static void doConvert(App& a) {
     int ok = 0, failN = 0; std::string firstErr;
     for (const auto& p : a.convTbls) {
         std::ifstream f(p, std::ios::binary | std::ios::ate);
-        if (!f) { ++failN; if (firstErr.empty()) firstErr = ws2utf8(fs::path(p).filename().wstring()) + ": 打不开"; continue; }
+        if (!f) { ++failN; if (firstErr.empty()) firstErr = ws2utf8(fs::path(p).filename().wstring()) + T(": 打不开"); continue; }
         auto sz = f.tellg(); f.seekg(0);
         std::vector<uint8_t> bytes((size_t)sz);
         if (sz > 0) f.read(reinterpret_cast<char*>(bytes.data()), sz);
         mk::TblFileG g; std::string err;
         if (!mk::DecodeTblG(bytes, schemas, "Sora1", g, err)) {
-            ++failN; if (firstErr.empty()) firstErr = ws2utf8(fs::path(p).filename().wstring()) + ": " + err; continue;
+            ++failN; if (firstErr.empty()) firstErr = ws2utf8(fs::path(p).filename().wstring()) + ": " + trErr(err); continue;
         }
         std::string text;
         try { text = tblFileToJson(g, fs::path(p).stem().string()).dump(2); }
         catch (const std::exception& e) {
-            ++failN; if (firstErr.empty()) firstErr = ws2utf8(fs::path(p).filename().wstring()) + ": 导出 JSON 失败(" + e.what() + ")";
+            ++failN; if (firstErr.empty()) firstErr = ws2utf8(fs::path(p).filename().wstring()) + T(": 导出 JSON 失败(") + e.what() + ")";
             continue;
         }
         fs::path outP = outDir / (fs::path(p).stem().wstring() + L".json");
@@ -955,14 +1201,14 @@ static bool TblTypeHasUnmodeledPool(const std::string& name) {
 }
 
 static bool jsonToTblFileG(const ojson& j, const std::wstring& schemasDir, mk::TblFileG& out, std::string& err) {
-    if (!j.is_object() || !j.contains("tables") || !j["tables"].is_array()) { err = "JSON 缺 tables 数组(需 TBL→JSON 导出的格式)"; return false; }
+    if (!j.is_object() || !j.contains("tables") || !j["tables"].is_array()) { err = T("JSON 缺 tables 数组(需 TBL→JSON 导出的格式)"); return false; }
     for (const auto& tj : j["tables"]) {
-        if (!tj.is_object() || !tj.contains("table") || !tj["table"].is_string()) { err = "表项缺 table 名"; return false; }
+        if (!tj.is_object() || !tj.contains("table") || !tj["table"].is_string()) { err = T("表项缺 table 名"); return false; }
         std::string name = tj["table"].get<std::string>();
         static const ojson kEmptyArr = ojson::array();
         const ojson& rows = (tj.contains("rows") && tj["rows"].is_array()) ? tj["rows"] : kEmptyArr;
         if (TblTypeHasUnmodeledPool(name)) {
-            err = "表 '" + name + "' 暂不支持回编";
+            { char b[200]; snprintf(b, sizeof b, T("表 '%s' 暂不支持回编"), name.c_str()); err = b; }
             return false;
         }
         for (const auto& rj : rows) {
@@ -970,7 +1216,7 @@ static bool jsonToTblFileG(const ojson& j, const std::wstring& schemasDir, mk::T
             for (auto it = rj.begin(); it != rj.end(); ++it) {
                 const std::string& k = it.key();
                 if (k.size() > 3 && k.compare(k.size() - 3, 3, "__s") == 0) {
-                    err = "表 '" + name + "' 暂不支持回编";
+                    { char b[200]; snprintf(b, sizeof b, T("表 '%s' 暂不支持回编"), name.c_str()); err = b; }
                     return false;
                 }
             }
@@ -1005,7 +1251,7 @@ static bool jsonToTblFileG(const ojson& j, const std::wstring& schemasDir, mk::T
         }
         out.tables.push_back(std::move(t));
     }
-    if (out.tables.empty()) { err = "JSON 无有效表"; return false; }
+    if (out.tables.empty()) { err = T("JSON 无有效表"); return false; }
     return true;
 }
 
@@ -1020,17 +1266,17 @@ static void doConvertJsonToTbl(App& a) {
     for (const auto& p : a.convTbls) {
         std::string fn = ws2utf8(fs::path(p).filename().wstring());
         std::ifstream f(p, std::ios::binary);
-        if (!f) { ++failN; if (firstErr.empty()) firstErr = fn + ": 打不开"; continue; }
+        if (!f) { ++failN; if (firstErr.empty()) firstErr = fn + T(": 打不开"); continue; }
         ojson j;
         try { j = ojson::parse(f); }
-        catch (const std::exception& e) { ++failN; if (firstErr.empty()) firstErr = fn + ": JSON 解析失败(" + e.what() + ")"; continue; }
+        catch (const std::exception& e) { ++failN; if (firstErr.empty()) firstErr = fn + T(": JSON 解析失败(") + e.what() + ")"; continue; }
         mk::TblFileG g; std::string err;
-        if (!jsonToTblFileG(j, schemas, g, err)) { ++failN; if (firstErr.empty()) firstErr = fn + ": " + err; continue; }
+        if (!jsonToTblFileG(j, schemas, g, err)) { ++failN; if (firstErr.empty()) firstErr = fn + ": " + trErr(err); continue; }
         std::vector<uint8_t> bytes = mk::EncodeTblG(g);
-        if (bytes.empty()) { ++failN; if (firstErr.empty()) firstErr = fn + ": 编码结果为空"; continue; }
+        if (bytes.empty()) { ++failN; if (firstErr.empty()) firstErr = fn + T(": 编码结果为空"); continue; }
         fs::path outP = outDir / (fs::path(p).stem().wstring() + L".tbl");
         std::ofstream o(outP, std::ios::binary);
-        if (!o) { ++failN; if (firstErr.empty()) firstErr = fn + ": 写出失败"; continue; }
+        if (!o) { ++failN; if (firstErr.empty()) firstErr = fn + T(": 写出失败"); continue; }
         o.write(reinterpret_cast<const char*>(bytes.data()), (std::streamsize)bytes.size());
         ++ok;
     }
@@ -1126,7 +1372,7 @@ static void doConvertDatToJson(App& a) {
     for (const auto& p : a.datFiles) {
         std::string fn = ws2utf8(fs::path(p).filename().wstring());
         std::ifstream f(p, std::ios::binary);
-        if (!f) { ++failN; if (firstErr.empty()) firstErr = fn + ": 打不开"; continue; }
+        if (!f) { ++failN; if (firstErr.empty()) firstErr = fn + T(": 打不开"); continue; }
         std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)), {});
         std::string stem = ws2utf8(fs::path(p).stem().wstring());
         try {
@@ -1135,10 +1381,10 @@ static void doConvertDatToJson(App& a) {
             ojson j = datjson::toJson(s, stem);
             fs::path outP = outDir / (fs::path(p).stem().wstring() + L".json");
             std::ofstream o(outP, std::ios::binary);
-            if (!o) { ++failN; if (firstErr.empty()) firstErr = fn + ": 写出失败"; continue; }
+            if (!o) { ++failN; if (firstErr.empty()) firstErr = fn + T(": 写出失败"); continue; }
             o << j.dump(1, '\t');
             ++ok;
-        } catch (const std::exception& e) { ++failN; if (firstErr.empty()) firstErr = fn + ": 解析失败(" + e.what() + ")"; }
+        } catch (const std::exception& e) { ++failN; if (firstErr.empty()) firstErr = fn + T(": 解析失败(") + e.what() + ")"; }
     }
     { char b[160]; snprintf(b, sizeof b, T("导出完成:成功 %d,失败 %d"), ok, failN);
       a.datStatus = std::string(b) + (firstErr.empty() ? "" : ("\n(" + firstErr + ")")); }
@@ -1153,21 +1399,21 @@ static void doConvertJsonToDat(App& a) {
     for (const auto& p : a.datFiles) {
         std::string fn = ws2utf8(fs::path(p).filename().wstring());
         std::ifstream f(p, std::ios::binary);
-        if (!f) { ++failN; if (firstErr.empty()) firstErr = fn + ": 打不开"; continue; }
+        if (!f) { ++failN; if (firstErr.empty()) firstErr = fn + T(": 打不开"); continue; }
         ojson j;
         try { j = ojson::parse(f); }
-        catch (const std::exception& e) { ++failN; if (firstErr.empty()) firstErr = fn + ": JSON 解析失败(" + e.what() + ")"; continue; }
-        if (!j.is_object() || !j.contains("funcs")) { ++failN; if (firstErr.empty()) firstErr = fn + ": 非 dat JSON(缺 funcs;需 DAT→JSON 导出的格式)"; continue; }
+        catch (const std::exception& e) { ++failN; if (firstErr.empty()) firstErr = fn + T(": JSON 解析失败(") + e.what() + ")"; continue; }
+        if (!j.is_object() || !j.contains("funcs")) { ++failN; if (firstErr.empty()) firstErr = fn + T(": 非 dat JSON(缺 funcs;需 DAT→JSON 导出的格式)"); continue; }
         try {
             ed9::Script s = datjson::fromJson(j);
             std::vector<uint8_t> bytes = ed9::assemble(s);
-            if (bytes.empty()) { ++failN; if (firstErr.empty()) firstErr = fn + ": 组装结果为空"; continue; }
+            if (bytes.empty()) { ++failN; if (firstErr.empty()) firstErr = fn + T(": 组装结果为空"); continue; }
             fs::path outP = outDir / (fs::path(p).stem().wstring() + L".dat");
             std::ofstream o(outP, std::ios::binary);
-            if (!o) { ++failN; if (firstErr.empty()) firstErr = fn + ": 写出失败"; continue; }
+            if (!o) { ++failN; if (firstErr.empty()) firstErr = fn + T(": 写出失败"); continue; }
             o.write(reinterpret_cast<const char*>(bytes.data()), (std::streamsize)bytes.size());
             ++ok;
-        } catch (const std::exception& e) { ++failN; if (firstErr.empty()) firstErr = fn + ": 组装失败(" + e.what() + ")"; }
+        } catch (const std::exception& e) { ++failN; if (firstErr.empty()) firstErr = fn + T(": 组装失败(") + e.what() + ")"; }
     }
     { char b[160]; snprintf(b, sizeof b, T("导出完成:成功 %d,失败 %d"), ok, failN);
       a.datStatus = std::string(b) + (firstErr.empty() ? "" : ("\n(" + firstErr + ")")); }
@@ -1203,6 +1449,16 @@ static bool flatButton(App& a, const char* label, const char* id, bool compact =
             IM_COL32(255, 255, 255, (int)(230 * anim)), st.FrameRounding, 0, 2.0f);
     return clicked;
 }
+static float buttonW(const char* label) { return ImGui::CalcTextSize(label).x + ImGui::GetStyle().FramePadding.x * 2.0f; }
+static float checkboxW(const char* label) {
+    return ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x + ImGui::CalcTextSize(label).x;
+}
+static void textColoredWrapped(const ImVec4& col, const char* s) {
+    ImGui::PushStyleColor(ImGuiCol_Text, col);
+    ImGui::TextWrapped("%s", s);
+    ImGui::PopStyleColor();
+}
+static void textDisabledWrapped(const char* s) { textColoredWrapped(ImGui::GetStyle().Colors[ImGuiCol_TextDisabled], s); }
 
 static void drawSelectedFiles(App& a, std::vector<std::wstring>& files, const char* idPrefix) {
     const ImGuiStyle& st = ImGui::GetStyle();
@@ -1235,9 +1491,11 @@ static void drawConvertTab(App& a) {
     const bool toJson = (a.convMode == 0);
     ImGui::Spacing();
 
-    const wchar_t* filter = toJson ? L"tbl 文件 (*.tbl)\0*.tbl\0所有文件 (*.*)\0*.*\0"
-                                   : L"json 文件 (*.json)\0*.json\0所有文件 (*.*)\0*.*\0";
-    const wchar_t* pickTitle = toJson ? L"选择要转换的 tbl(可多选)" : L"选择要转换的 json(可多选)";
+    const std::wstring filterS = toJson ? dlgFilter({ { "tbl 文件 (*.tbl)", L"*.tbl" }, { "所有文件 (*.*)", L"*.*" } })
+                                        : dlgFilter({ { "json 文件 (*.json)", L"*.json" }, { "所有文件 (*.*)", L"*.*" } });
+    const std::wstring titleS = toJson ? TW(L"选择要转换的 tbl(可多选)") : TW(L"选择要转换的 json(可多选)");
+    const wchar_t* filter = filterS.c_str();
+    const wchar_t* pickTitle = titleS.c_str();
 
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted(toJson ? T("1) 要转换的 tbl") : T("1) 要转换的 json"));
@@ -1251,8 +1509,8 @@ static void drawConvertTab(App& a) {
     ImGui::TextDisabled(T("已选 %d 个"), (int)a.convTbls.size());
 
     ImGui::BeginChild("convlist", ImVec2(0, 240), true);
-    if (a.convTbls.empty()) ImGui::TextDisabled("%s", toJson ? T("(未选择;可从 table_sc 等文件夹一次多选 .tbl)")
-                                                             : T("(未选择;选之前 TBL→JSON 导出并编辑过的 .json)"));
+    if (a.convTbls.empty()) textDisabledWrapped(toJson ? T("(未选择;可从 table_sc 等文件夹一次多选 .tbl)")
+                                                       : T("(未选择;选之前 TBL→JSON 导出并编辑过的 .json)"));
     else drawSelectedFiles(a, a.convTbls, "convdel");
     ImGui::EndChild();
 
@@ -1260,10 +1518,10 @@ static void drawConvertTab(App& a) {
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted(T("2) 导出目录"));
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(-200.0f * g_dpiScale);
+    ImGui::SetNextItemWidth(-(buttonW(T("选择目录…")) + ImGui::GetStyle().ItemSpacing.x));
     ImGui::InputText("##convout", a.convOutDir, sizeof(a.convOutDir));
     ImGui::SameLine();
-    if (flatButton(a, T("选择目录…"), "conv_out")) { std::wstring sel; if (browseFolder(sel, toJson ? L"选择 JSON 导出目录" : L"选择 TBL 导出目录")) strncpy_s(a.convOutDir, ws2utf8(sel).c_str(), _TRUNCATE); }
+    if (flatButton(a, T("选择目录…"), "conv_out")) { std::wstring sel; if (browseFolder(sel, (toJson ? TW(L"选择 JSON 导出目录") : TW(L"选择 TBL 导出目录")).c_str())) strncpy_s(a.convOutDir, ws2utf8(sel).c_str(), _TRUNCATE); }
 
     ImGui::Spacing();
     if (flatButton(a, toJson ? T("  解码并导出 JSON  ") : T("  编码并导出 TBL  "), "conv_run")) { if (toJson) doConvert(a); else doConvertJsonToTbl(a); }
@@ -1283,9 +1541,11 @@ static void drawDatConvertTab(App& a) {
     const bool toJson = (a.datConvMode == 0);
     ImGui::Spacing();
 
-    const wchar_t* filter = toJson ? L"dat 脚本 (*.dat)\0*.dat\0所有文件 (*.*)\0*.*\0"
-                                   : L"json 文件 (*.json)\0*.json\0所有文件 (*.*)\0*.*\0";
-    const wchar_t* pickTitle = toJson ? L"选择要转换的 dat(可多选)" : L"选择要转换的 json(可多选)";
+    const std::wstring filterS = toJson ? dlgFilter({ { "dat 脚本 (*.dat)", L"*.dat" }, { "所有文件 (*.*)", L"*.*" } })
+                                        : dlgFilter({ { "json 文件 (*.json)", L"*.json" }, { "所有文件 (*.*)", L"*.*" } });
+    const std::wstring titleS = toJson ? TW(L"选择要转换的 dat(可多选)") : TW(L"选择要转换的 json(可多选)");
+    const wchar_t* filter = filterS.c_str();
+    const wchar_t* pickTitle = titleS.c_str();
 
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted(toJson ? T("1) 要转换的 dat") : T("1) 要转换的 json"));
@@ -1299,8 +1559,8 @@ static void drawDatConvertTab(App& a) {
     ImGui::TextDisabled(T("已选 %d 个"), (int)a.datFiles.size());
 
     ImGui::BeginChild("datconvlist", ImVec2(0, 240), true);
-    if (a.datFiles.empty()) ImGui::TextDisabled("%s", toJson ? T("(未选择;选 script\\scena 等文件夹里的 .dat)")
-                                                             : T("(未选择;选之前 DAT→JSON 导出并编辑过的 .json)"));
+    if (a.datFiles.empty()) textDisabledWrapped(toJson ? T("(未选择;选 script\\scena 等文件夹里的 .dat)")
+                                                       : T("(未选择;选之前 DAT→JSON 导出并编辑过的 .json)"));
     else drawSelectedFiles(a, a.datFiles, "datdel");
     ImGui::EndChild();
 
@@ -1308,10 +1568,10 @@ static void drawDatConvertTab(App& a) {
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted(T("2) 导出目录"));
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(-200.0f * g_dpiScale);
+    ImGui::SetNextItemWidth(-(buttonW(T("选择目录…")) + ImGui::GetStyle().ItemSpacing.x));
     ImGui::InputText("##datconvout", a.datOutDir, sizeof(a.datOutDir));
     ImGui::SameLine();
-    if (flatButton(a, T("选择目录…"), "dat_out")) { std::wstring sel; if (browseFolder(sel, toJson ? L"选择 JSON 导出目录" : L"选择 DAT 导出目录")) strncpy_s(a.datOutDir, ws2utf8(sel).c_str(), _TRUNCATE); }
+    if (flatButton(a, T("选择目录…"), "dat_out")) { std::wstring sel; if (browseFolder(sel, (toJson ? TW(L"选择 JSON 导出目录") : TW(L"选择 DAT 导出目录")).c_str())) strncpy_s(a.datOutDir, ws2utf8(sel).c_str(), _TRUNCATE); }
 
     ImGui::Spacing();
     if (flatButton(a, toJson ? T("  反编并导出 JSON  ") : T("  回编并导出 DAT  "), "dat_run")) { if (toJson) doConvertDatToJson(a); else doConvertJsonToDat(a); }
@@ -1338,7 +1598,7 @@ static void doConvertDds(App& a) {
         const fs::path src = p;
         const std::string fn = ws2utf8(src.filename().wstring());
         std::ifstream f(src, std::ios::binary | std::ios::ate);
-        if (!f) { a.ddsLog.push_back(std::string("[失败] ") + fn + ":打不开"); ++failN; continue; }
+        if (!f) { a.ddsLog.push_back(std::string("\x01") + T("[失败] ") + fn + T(":打不开")); ++failN; continue; }
         const auto sz = f.tellg(); f.seekg(0);
         std::vector<uint8_t> in((size_t)sz);
         if (sz > 0) f.read(reinterpret_cast<char*>(in.data()), sz);
@@ -1346,22 +1606,22 @@ static void doConvertDds(App& a) {
 
         const ddsc::Form form = ddsc::Detect(in);
         if ((dec && form == ddsc::Form::Plain) || (!dec && form == ddsc::Form::Game)) {
-            a.ddsLog.push_back(std::string("[跳过] ") + fn + (dec ? T(":已经是普通 DDS,无需解密") : T(":已经是游戏格式,无需加密")));
+            a.ddsLog.push_back(std::string("\x02") + T("[跳过] ") + fn + (dec ? T(":已经是普通 DDS,无需解密") : T(":已经是游戏格式,无需加密")));
             ++skip; continue;
         }
 
         std::vector<uint8_t> out; std::string err;
         const bool done = dec ? ddsc::Decrypt(in, out, err) : ddsc::Encrypt(in, out, err);
-        if (!done) { a.ddsLog.push_back(std::string("[失败] ") + fn + ":" + err); ++failN; continue; }
+        if (!done) { a.ddsLog.push_back(std::string("\x01") + T("[失败] ") + fn + ":" + trErr(err)); ++failN; continue; }
 
         const fs::path dst = a.ddsOverwrite ? src : (outDir / src.filename());
         std::error_code ec2;
         if (!a.ddsOverwrite && fs::exists(dst, ec2) && fs::equivalent(src, dst, ec2)) {
-            a.ddsLog.push_back(std::string("[失败] ") + fn + T(":导出目录就是源目录,会盖掉原件。换个目录,或勾「就地覆盖原文件」"));
+            a.ddsLog.push_back(std::string("\x01") + T("[失败] ") + fn + T(":导出目录就是源目录,会盖掉原件。换个目录,或勾「就地覆盖原文件」"));
             ++failN; continue;
         }
         std::ofstream o(dst, std::ios::binary);
-        if (!o) { a.ddsLog.push_back(std::string("[失败] ") + fn + T(":写出失败")); ++failN; continue; }
+        if (!o) { a.ddsLog.push_back(std::string("\x01") + T("[失败] ") + fn + T(":写出失败")); ++failN; continue; }
         o.write(reinterpret_cast<const char*>(out.data()), (std::streamsize)out.size());
         o.close();
 
@@ -1369,12 +1629,12 @@ static void doConvertDds(App& a) {
         const ddsc::DdsInfo info = ddsc::Inspect(plain.data(), plain.size());
         char line[512];
         if (info.ok)
-            snprintf(line, sizeof line, "[成功] %s  %ux%u  mip%u  %s  %zu → %zu 字节",
-                     fn.c_str(), info.width, info.height, info.mips, info.format.c_str(), in.size(), out.size());
+            snprintf(line, sizeof line, T("[成功] %s  %ux%u  mip%u  %s  %zu → %zu 字节"),
+                     fn.c_str(), info.width, info.height, info.mips, trErr(info.format).c_str(), in.size(), out.size());
         else
-            snprintf(line, sizeof line, "[成功] %s  %zu → %zu 字节", fn.c_str(), in.size(), out.size());
+            snprintf(line, sizeof line, T("[成功] %s  %zu → %zu 字节"), fn.c_str(), in.size(), out.size());
         a.ddsLog.push_back(line);
-        for (const auto& w : info.warns) { a.ddsLog.push_back(std::string("  [注意] ") + w); ++warnN; }
+        for (const auto& w : info.warns) { a.ddsLog.push_back(std::string("\x03") + T("  [注意] ") + trErr(w)); ++warnN; }
         ++ok;
     }
     char b[220];
@@ -1392,8 +1652,10 @@ static void drawDdsTab(App& a) {
     const bool dec = (a.ddsMode == 0);
     ImGui::Spacing();
 
-    const wchar_t* filter = L"dds 贴图 (*.dds)\0*.dds\0所有文件 (*.*)\0*.*\0";
-    const wchar_t* pickTitle = L"选择要转换的 dds(可多选)";
+    const std::wstring filterS = dlgFilter({ { "dds 贴图 (*.dds)", L"*.dds" }, { "所有文件 (*.*)", L"*.*" } });
+    const std::wstring titleS = TW(L"选择要转换的 dds(可多选)");
+    const wchar_t* filter = filterS.c_str();
+    const wchar_t* pickTitle = titleS.c_str();
 
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted(T("1) 要转换的 dds"));
@@ -1404,7 +1666,7 @@ static void drawDdsTab(App& a) {
     ImGui::SameLine();
     if (flatButton(a, T("整个目录…"), "dds_dir")) {
         std::wstring d;
-        if (browseFolder(d, L"选择一个目录,里面的 .dds 会全部加入")) {
+        if (browseFolder(d, TW(L"选择一个目录,里面的 .dds 会全部加入").c_str())) {
             std::error_code ec;
             for (auto& e : fs::directory_iterator(d, ec))
                 if (e.is_regular_file(ec) && _wcsicmp(e.path().extension().wstring().c_str(), L".dds") == 0)
@@ -1426,10 +1688,10 @@ static void drawDdsTab(App& a) {
     ImGui::TextUnformatted(T("2) 导出目录"));
     ImGui::SameLine();
     ImGui::BeginDisabled(a.ddsOverwrite);
-    ImGui::SetNextItemWidth(-340.0f * g_dpiScale);
+    ImGui::SetNextItemWidth(-(buttonW(T("选择目录…")) + checkboxW(T("就地覆盖原文件")) + ImGui::GetStyle().ItemSpacing.x * 2.0f));
     ImGui::InputText("##ddsout", a.ddsOutDir, sizeof(a.ddsOutDir));
     ImGui::SameLine();
-    if (flatButton(a, T("选择目录…"), "dds_out")) { std::wstring sel; if (browseFolder(sel, L"选择 dds 导出目录")) strncpy_s(a.ddsOutDir, ws2utf8(sel).c_str(), _TRUNCATE); }
+    if (flatButton(a, T("选择目录…"), "dds_out")) { std::wstring sel; if (browseFolder(sel, TW(L"选择 dds 导出目录").c_str())) strncpy_s(a.ddsOutDir, ws2utf8(sel).c_str(), _TRUNCATE); }
     ImGui::EndDisabled();
     ImGui::SameLine();
     ImGui::Checkbox(T("就地覆盖原文件"), &a.ddsOverwrite);
@@ -1449,11 +1711,12 @@ static void drawDdsTab(App& a) {
     if (a.ddsLog.empty()) ImGui::TextDisabled("%s", T("(没结果)"));
     for (const auto& l : a.ddsLog) {
         ImVec4 col(0.85f, 0.88f, 0.92f, 1.0f);
-        if (l.rfind("[失败]", 0) == 0)        col = ImVec4(1.00f, 0.42f, 0.40f, 1.0f);
-        else if (l.rfind("[跳过]", 0) == 0)   col = ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
-        else if (l.rfind("  [注意]", 0) == 0) col = ImVec4(1.00f, 0.70f, 0.30f, 1.0f);
+        const char* s = l.c_str();
+        if (*s == '\x01')      { col = ImVec4(1.00f, 0.42f, 0.40f, 1.0f); ++s; }
+        else if (*s == '\x02') { col = ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled); ++s; }
+        else if (*s == '\x03') { col = ImVec4(1.00f, 0.70f, 0.30f, 1.0f); ++s; }
         ImGui::PushStyleColor(ImGuiCol_Text, col);
-        ImGui::TextWrapped("%s", l.c_str());
+        ImGui::TextWrapped("%s", s);
         ImGui::PopStyleColor();
     }
     ImGui::EndChild();
@@ -1462,7 +1725,7 @@ static void drawDdsTab(App& a) {
 static void drawMergeLog(App& a) {
     const json errs = a.hasReport ? a.report.value("errors", json::array()) : json::array();
     if (errs.empty() && a.mergeLog.empty()) {
-        ImGui::TextDisabled("%s", T("暂无日志/错误。点上方「保存」后,这里显示日志与错误详情。"));
+        textDisabledWrapped(T("暂无日志/错误。点上方「保存」后,这里显示日志与错误详情。"));
         return;
     }
     ImGui::BeginChild("logscroll", ImVec2(0, 0), true, ImGuiWindowFlags_HorizontalScrollbar);
@@ -1473,11 +1736,14 @@ static void drawMergeLog(App& a) {
         for (const auto& e : errs) {
             std::string where = trErr(e.value("where", std::string("?")));
             std::string detail = trErr(e.value("detail", std::string()));
-            std::string mods;
+            std::string mods, langs;
             for (const auto& mn : e.value("mods", json::array()))
                 if (mn.is_string()) { if (!mods.empty()) mods += ", "; mods += mn.get<std::string>(); }
+            for (const auto& lc : e.value("langs", json::array()))
+                if (lc.is_string()) { if (!langs.empty()) langs += " / "; langs += T(langCodeName(lc.get<std::string>())); }
             ImGui::TextColored(red, "  %s", where.c_str());
             if (!mods.empty()) { ImGui::SameLine(); ImGui::TextDisabled("[%s]", mods.c_str()); }
+            if (!langs.empty()) { ImGui::SameLine(); ImGui::TextDisabled(T("(仅 %s)"), langs.c_str()); }
             if (!detail.empty()) ImGui::TextWrapped("      %s", detail.c_str());
         }
         ImGui::Separator();
@@ -1485,7 +1751,11 @@ static void drawMergeLog(App& a) {
 
     if (!a.mergeLog.empty()) {
         ImGui::TextDisabled("%s", T("日志(最近一次「保存」):"));
-        ImGui::TextUnformatted(a.mergeLog.c_str());
+        if (a.mergeLogTrFor != a.mergeLog + "\x1f" + g_langCode) {
+            a.mergeLogTr = trLines(a.mergeLog);
+            a.mergeLogTrFor = a.mergeLog + "\x1f" + g_langCode;
+        }
+        ImGui::TextUnformatted(a.mergeLogTr.c_str());
     }
     ImGui::EndChild();
 }
@@ -1502,7 +1772,8 @@ static const char* const kAudioCfgKey = "##audio";
 
 static void drawModAssets(App& a, const orch::ModInfo& m) {
     if (a.selAssets.empty()) return;
-    int nconf = 0; for (auto& ar : a.selAssets) if (ar.conflict) ++nconf;
+    auto composed = [&a](const AssetRow& ar) { return ar.conflict && isComposed(a, ar.rel, ar.providers); };
+    int nconf = 0; for (auto& ar : a.selAssets) if (ar.conflict && !composed(ar)) ++nconf;
     ImGui::Spacing();
     char hdr[260];
     if (nconf) snprintf(hdr, sizeof hdr, T("资源覆盖 asset (%d 个, 冲突 %d)"), (int)a.selAssets.size(), nconf);
@@ -1511,24 +1782,30 @@ static void drawModAssets(App& a, const orch::ModInfo& m) {
     if (!ImGui::CollapsingHeader(hdrId.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) return;
     const ImVec4 red(1.0f, 0.45f, 0.40f, 1.0f);
     const ImVec4 blue(0.55f, 0.78f, 1.00f, 1.0f);
+    const ImVec4 green(0.55f, 0.90f, 0.55f, 1.0f);
     for (const auto& ar : a.selAssets) {
+        const bool comp = composed(ar);
+        const bool conf = ar.conflict && !comp;
         ImGui::Indent(16.0f);
-        ImGui::TextColored(ar.conflict ? red : blue, "%s", ar.conflict ? T("[覆盖冲突]") : T("[资源]"));
+        ImGui::TextColored(conf ? red : (comp ? green : blue), "%s", conf ? T("[覆盖冲突]") : (comp ? T("[按块合成]") : T("[资源]")));
         ImGui::SameLine();
         ImGui::TextUnformatted(ar.rel.c_str());
         if (ar.conflict) {
             std::string others;
             for (const auto& p : ar.providers) if (p != m.name) others += (others.empty() ? "" : ", ") + p;
             ImGui::Indent(16.0f);
-            ImGui::TextColored(red, T("也被 [%s] 覆盖  →  加载顺序靠后的 [%s] 生效"),
-                               others.empty() ? T("本 mod 内重复") : others.c_str(), ar.winner.c_str());
+            if (comp)
+                ImGui::TextColored(green, T("和 [%s] 按块合成  →  各自改的格子都生效"), others.c_str());
+            else
+                ImGui::TextColored(red, T("也被 [%s] 覆盖  →  加载顺序靠后的 [%s] 生效"),
+                                   others.empty() ? T("本 mod 内重复") : others.c_str(), ar.winner.c_str());
             ImGui::Unindent(16.0f);
         }
         ImGui::Unindent(16.0f);
     }
     if (nconf) {
         ImGui::Spacing();
-        ImGui::TextDisabled("%s", T("同一资源被多个 MOD 覆盖 → 加载顺序靠后者生效(左栏 ▲▼ 调顺序)。不想冲突就关掉其一或调序。"));
+        textDisabledWrapped(T("同一资源被多个 MOD 覆盖 → 加载顺序靠后者生效(左栏 ▲▼ 调顺序)。不想冲突就关掉其一或调序。"));
     }
 }
 
@@ -1633,7 +1910,7 @@ static void chipFlush() {
 
 static void drawModConfig(App& a) {
     if (a.selMod < 0 || a.selMod >= (int)a.mods.size()) {
-        ImGui::TextDisabled("%s", T("← 点左侧某个 MOD,在此查看并逐条开关它的 tbl 修改(tbl\\=共享 / tbl\\sc\\ tbl\\tc\\ tbl\\kr\\=分语言)。"));
+        textDisabledWrapped(T("← 点左侧某个 MOD,在此查看并逐条开关它的 tbl 修改(tbl\\=共享 / tbl\\<语言>\\=分语言)。"));
         return;
     }
     orch::ModInfo& m = a.mods[a.selMod];
@@ -1644,6 +1921,7 @@ static void drawModConfig(App& a) {
         computeSelScripts(a, m.name, "ani", a.selAni);
         computeSelVfx(a, m.name);
         scanAudioGroups(a, m.name);
+        a.selLangs = modLangSet(a, m.name, a.selLangAll);
         a.compsFor = m.name;
         a.cfgFile.clear();
         a.cfgHoverIdx = -1; a.cfgAnim.clear();
@@ -1665,7 +1943,7 @@ static void drawModConfig(App& a) {
     }
     auto modDisabledWarn = [&]() {
         if (!m.enabled)
-            ImGui::TextColored(ImVec4(1.0f, 0.60f, 0.45f, 1.0f), "%s", T("（该 MOD 已整体关闭;下面的开关在 MOD 启用后才会生效）"));
+            textColoredWrapped(ImVec4(1.0f, 0.60f, 0.45f, 1.0f), T("（该 MOD 已整体关闭;下面的开关在 MOD 启用后才会生效）"));
     };
     auto modGameSetting = [&]() {
         const std::string cur = a.modGame.count(m.name) ? a.modGame[m.name] : std::string();
@@ -1679,13 +1957,27 @@ static void drawModConfig(App& a) {
         if (bad) ImGui::PopStyleColor();
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("%s", T("由管理器自动识别。"));
+        const bool all = a.selLangAll;
+        const std::set<std::string>& ml = a.selLangs;
+        ImGui::TextUnformatted(T("适用语言"));
+        ImGui::SameLine();
+        if (all) ImGui::TextColored(ImVec4(0.62f, 0.90f, 0.82f, 1.0f), "%s", T("所有语言"));
+        else if (ml.empty()) textColoredWrapped(ImVec4(1.00f, 0.60f, 0.25f, 1.0f), T("本作没有它带的语言,不会生效"));
+        else {
+            std::string s;
+            for (const char* c : { "jp", "sc", "tc", "ko", "kr", "en", "de", "fr", "es" })
+                if (ml.count(c)) { if (!s.empty()) s += " / "; s += T(langCodeName(c)); }
+            ImGui::TextColored(ImVec4(0.62f, 0.90f, 0.82f, 1.0f), "%s", s.c_str());
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s", T("带了语言子目录(tbl\\sc\\ 之类)的 MOD 只在这些语言生效,没带的所有语言都生效。"));
     };
 
     if (a.comps.empty() && a.audioGroups.empty()) {
         ImGui::Text("MOD: %s", m.name.c_str());
         modDisabledWarn();
         modGameSetting();
-        ImGui::TextDisabled("%s", T("(此 MOD 无 tbl 配置:Mod\\<mod>\\tbl\\*.json,语言专属放 tbl\\sc\\ 等)"));
+        textDisabledWrapped(T("(此 MOD 无 tbl 配置:Mod\\<mod>\\tbl\\*.json,语言专属放 tbl\\<语言>\\)"));
         drawModAssets(a, m);
         drawModAi(a, m);
         drawModAni(a, m);
@@ -1698,7 +1990,7 @@ static void drawModConfig(App& a) {
         else {
             ImGui::Text("MOD: %s  >  %s", m.name.c_str(), T("语音配置"));
             modDisabledWarn();
-            ImGui::TextDisabled("%s", T("勾选 = 该文件夹内的音频生效;取消 = 保存时整组跳过。改完点上方「保存」套用。"));
+            textDisabledWrapped(T("勾选 = 该文件夹内的音频生效;取消 = 保存时整组跳过。改完点上方「保存」套用。"));
             bool back = chipButton(T("← 后退"), "cfgback", a.cfgBackAnim);
             chipFlush();
             if (!a.showSettings) {
@@ -1751,7 +2043,7 @@ static void drawModConfig(App& a) {
         if (found) {
             ImGui::Text("MOD: %s  >  %s", m.name.c_str(), a.comps[gi].disp.c_str());
             modDisabledWarn();
-            ImGui::TextDisabled("%s", T("勾选 = 该条修改生效;取消 = 保存时跳过此条(不影响其它条)。改完点上方「保存」套用。"));
+            textDisabledWrapped(T("勾选 = 该条修改生效;取消 = 保存时跳过此条(不影响其它条)。改完点上方「保存」套用。"));
             bool back = chipButton(T("← 后退"), "cfgback", a.cfgBackAnim);
             chipFlush();
             if (!a.showSettings) {
@@ -1875,7 +2167,7 @@ static void centerModal(float fracW = 0, float fracH = 0,
 static void drawSettings(App& a) {
     if (!a.showSettings) return;
     if (!ImGui::IsPopupOpen("###settings")) ImGui::OpenPopup("###settings");
-    centerModal(0.42f, 0.52f, 420, 320, 760, 680);
+    centerModal(0.42f, 0.82f, 420, 540, 760, 760);
     std::string title = std::string(T("设置")) + "###settings";
     if (ImGui::BeginPopupModal(title.c_str(), &a.showSettings,
                                ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove)) {
@@ -1888,9 +2180,10 @@ static void drawSettings(App& a) {
         if (a.settingsCat == 0) {
             ImGui::TextUnformatted(T("界面语言"));
             ImGui::Separator();
-            auto langs = scanLanguages();
+            if (ImGui::IsWindowAppearing() || a.langList.empty()) a.langList = scanLanguages();
+            const auto& langs = a.langList;
             if (langs.empty()) {
-                ImGui::TextDisabled("%s", T("未找到语言文件(ED9Loader\\language\\*.json)"));
+                textDisabledWrapped(T("未找到语言文件(ED9Loader\\language\\*.json)"));
             } else {
                 for (const auto& lc : langs) {
                     ImGui::PushID(lc.first.c_str());
@@ -1898,12 +2191,14 @@ static void drawSettings(App& a) {
                     if (ImGui::RadioButton(lc.second.c_str(), sel) && !sel) {
                         loadLanguage(lc.first);
                         saveIniGameDir(a);
+                        a.compsFor.clear();
+                        a.cfgFile.clear();
                     }
                     ImGui::PopID();
                 }
             }
             ImGui::Spacing();
-            ImGui::TextDisabled("%s", T("语言文件放在 ED9Loader\\language\\,可自行增删。"));
+            textDisabledWrapped(T("语言文件放在 ED9Loader\\language\\,可自行增删。"));
         }
         ImGui::EndChild();
         if (ImGui::Button(T("关闭"))) { a.showSettings = false; ImGui::CloseCurrentPopup(); }
@@ -1914,6 +2209,10 @@ static void drawSettings(App& a) {
 struct ChangeEntry { const char* ver; const char* date; std::vector<const char*> items; };
 static const std::vector<ChangeEntry>& changelog() {
     static const std::vector<ChangeEntry> log = {
+        { "1.1.2", "2026-10-05", {
+            "修正了当资源又多个块合成让管理器误以为是互相冲突的问题",
+            "加载器现已支持2nd所有语言",
+        } },
         { "1.1.1", "2026-09-30", {
             "新增Vfx特效文件通道，扩充MOD角色设置",
             "修复了tbl相关错误结构体",
@@ -2309,13 +2608,13 @@ static void drawUI(App& a) {
             if (!g_upd.restartLaunched) { g_upd.restartLaunched = true; restartManager(); }
         } else if (ph == 10) {
             std::string e; { std::lock_guard<std::mutex> lk(g_upd.mtx); e = g_upd.err; }
-            ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.4f, 1.0f), T("安装失败:%s"), e.c_str());
+            ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.4f, 1.0f), T("安装失败:%s"), trErr(e).c_str());
             ImGui::TextDisabled(T("可手动解压更新包覆盖游戏目录。"));
             ImGui::Separator();
             if (flatButton(a, T("关闭"), "upd_instclose")) { g_upd.phase = 2; ImGui::CloseCurrentPopup(); }
         } else {
             std::string e; { std::lock_guard<std::mutex> lk(g_upd.mtx); e = g_upd.err; }
-            ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.4f, 1.0f), T("下载失败:%s"), e.c_str());
+            ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.4f, 1.0f), T("下载失败:%s"), trErr(e).c_str());
             ImGui::Separator();
             if (flatButton(a, T("关闭"), "upd_dlclose")) { g_upd.phase = 2; ImGui::CloseCurrentPopup(); }
         }
@@ -2349,7 +2648,7 @@ static void drawUI(App& a) {
             if (flatButton(a, T("确定"), "um_ok")) { g_upd.manual = false; ImGui::CloseCurrentPopup(); }
         } else {
             std::string e; { std::lock_guard<std::mutex> lk(g_upd.mtx); e = g_upd.err; }
-            ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.4f, 1.0f), T("检查失败:%s"), e.c_str());
+            ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.4f, 1.0f), T("检查失败:%s"), trErr(e).c_str());
             ImGui::Spacing(); ImGui::Separator();
             if (flatButton(a, T("确定"), "um_ok2")) { g_upd.manual = false; ImGui::CloseCurrentPopup(); }
         }
@@ -2362,13 +2661,13 @@ static void drawUI(App& a) {
             if (ImGui::MenuItem(T("设置"))) a.showSettings = true;
             ImGui::Separator();
             if (ImGui::BeginMenu(T("游戏目录"))) {
-                ImGui::TextDisabled("%s", T("空之轨迹 the 1st 游戏根目录(含 sora_1st.exe / ED9Loader)"));
+                ImGui::TextDisabled("%s", T("空之轨迹 the 1st / the 2nd 的游戏根目录(含 sora_1st.exe 或 sora_2nd.exe)"));
                 ImGui::SetNextItemWidth(560.0f * g_dpiScale);
                 if (ImGui::InputText("##gamedir", a.gameDir, sizeof(a.gameDir), ImGuiInputTextFlags_EnterReturnsTrue)
                     || ImGui::IsItemDeactivatedAfterEdit()) { saveIniGameDir(a); refresh(a); }
                 if (ImGui::MenuItem(T("浏览…"))) {
                     std::wstring sel;
-                    if (browseFolder(sel, L"选择 空之轨迹 the 1st 游戏根目录(含 sora_1st.exe / ED9Loader 的那层)")) {
+                    if (browseFolder(sel, TW(L"选择空之轨迹 the 1st / the 2nd 的游戏根目录(含 sora_1st.exe 或 sora_2nd.exe 的那层)").c_str())) {
                         strncpy_s(a.gameDir, ws2utf8(sel).c_str(), _TRUNCATE); saveIniGameDir(a); refresh(a);
                     }
                 }
@@ -3378,7 +3677,7 @@ static void pacJobFinish() {
     std::wstring reopen;
     std::string  msg;
     { std::lock_guard<std::mutex> lk(g_pacJob.mtx);
-      msg = g_pacJob.err.empty() ? g_pacJob.result : (std::string(T("失败:")) + g_pacJob.err);
+      msg = g_pacJob.err.empty() ? g_pacJob.result : (std::string(T("失败:")) + trErr(g_pacJob.err));
       reopen = g_pacJob.reopen; }
     g_pacJob.done = false;
     g_pacJob.running = false;
@@ -3512,10 +3811,12 @@ static bool pacBrowseSave(std::wstring& out, const std::wstring& initName) {
     wcscpy_s(buf, initName.c_str());
     OPENFILENAMEW ofn = {};
     ofn.lStructSize = sizeof(ofn);
-    ofn.lpstrFilter = L"pac 归档 (*.pac)\0*.pac\0所有文件 (*.*)\0*.*\0";
+    const std::wstring pacFilter = dlgFilter({ { "pac 归档 (*.pac)", L"*.pac" }, { "所有文件 (*.*)", L"*.*" } });
+    const std::wstring saveTitle = TW(L"另存为");
+    ofn.lpstrFilter = pacFilter.c_str();
     ofn.lpstrFile = buf;
     ofn.nMaxFile = (DWORD)(sizeof(buf) / sizeof(wchar_t));
-    ofn.lpstrTitle = L"另存为";
+    ofn.lpstrTitle = saveTitle.c_str();
     ofn.lpstrDefExt = L"pac";
     ofn.Flags = OFN_EXPLORER | OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
     if (!GetSaveFileNameW(&ofn)) return false;
@@ -3629,7 +3930,7 @@ static void drawPacContent() {
 
     if (subFlatButton(T("打开 .pac…"), "pac_open", !busy)) {
         std::vector<std::wstring> sel;
-        if (browseFilesMulti(sel, L"pac 归档 (*.pac)\0*.pac\0所有文件 (*.*)\0*.*\0", L"选择一个 .pac")
+        if (browseFilesMulti(sel, dlgFilter({ { "pac 归档 (*.pac)", L"*.pac" }, { "所有文件 (*.*)", L"*.*" } }).c_str(), TW(L"选择一个 .pac").c_str())
             && !sel.empty())
             pacOpen(sel[0]);
     }
@@ -3667,7 +3968,7 @@ static void drawPacContent() {
     if (!g_pacState.loaded) {
         ImGui::Separator();
         ImGui::Spacing();
-        ImGui::TextDisabled("%s", T("还没打开任何 pac。点左上角「打开 .pac…」,或从「游戏里的 pac」里选一个。"));
+        textDisabledWrapped(T("还没打开任何 pac。点左上角「打开 .pac…」,或从「游戏里的 pac」里选一个。"));
         ImGui::End();
         return;
     }
@@ -3679,13 +3980,13 @@ static void drawPacContent() {
         snprintf(lb, sizeof lb, T("导出选中(%d)"), (int)g_pacState.sel.size());
         if (subFlatButton(lb, "pac_exp_sel", !busy && !g_pacState.sel.empty())) {
             std::wstring d;
-            if (browseFolder(d, L"选择导出目录"))
+            if (browseFolder(d, TW(L"选择导出目录").c_str()))
                 pacStartExport(std::vector<int>(g_pacState.sel.begin(), g_pacState.sel.end()), d);
         }
         ImGui::SameLine();
         if (subFlatButton(T("导出当前目录"), "pac_exp_dir", !busy)) {
             std::wstring d;
-            if (browseFolder(d, L"选择导出目录")) {
+            if (browseFolder(d, TW(L"选择导出目录").c_str())) {
                 std::vector<int> idx; pacCollectUnder(g_pacState.cur, idx);
                 pacStartExport(std::move(idx), d);
             }
@@ -3693,7 +3994,7 @@ static void drawPacContent() {
         ImGui::SameLine();
         if (subFlatButton(T("导出全部"), "pac_exp_all", !busy)) {
             std::wstring d;
-            if (browseFolder(d, L"选择导出目录")) {
+            if (browseFolder(d, TW(L"选择导出目录").c_str())) {
                 std::vector<int> idx; pacCollectUnder(0, idx);
                 pacStartExport(std::move(idx), d);
             }
@@ -3703,13 +4004,13 @@ static void drawPacContent() {
         ImGui::SameLine();
         if (subFlatButton(T("导入文件…"), "pac_imp_f", !busy)) {
             std::vector<std::wstring> sel;
-            if (browseFilesMulti(sel, L"所有文件 (*.*)\0*.*\0", L"选择要导入的文件(可多选)") && !sel.empty())
+            if (browseFilesMulti(sel, dlgFilter({ { "所有文件 (*.*)", L"*.*" } }).c_str(), TW(L"选择要导入的文件(可多选)").c_str()) && !sel.empty())
                 pacImportFiles(sel);
         }
         ImGui::SameLine();
         if (subFlatButton(T("导入文件夹…"), "pac_imp_d", !busy)) {
             std::wstring d;
-            if (browseFolder(d, L"选择要导入的文件夹(按相对路径挂进当前目录)")) pacImportFolder(d);
+            if (browseFolder(d, TW(L"选择要导入的文件夹(按相对路径挂进当前目录)").c_str())) pacImportFolder(d);
         }
         ImGui::SameLine();
         ImGui::TextDisabled("|");
@@ -3857,7 +4158,7 @@ static void drawPacContent() {
                     }
                     if (ImGui::MenuItem(T("导出这些…"), nullptr, false, !busy)) {
                         std::wstring d;
-                        if (browseFolder(d, L"选择导出目录"))
+                        if (browseFolder(d, TW(L"选择导出目录").c_str()))
                             pacStartExport(std::vector<int>(g_pacState.sel.begin(), g_pacState.sel.end()), d);
                     }
                     if (!f.replaceFrom.empty() && ImGui::MenuItem(T("取消这条的替换"))) {
@@ -3955,15 +4256,23 @@ static bool pacWindowEnsure() {
     ImGui::GetStyle().ScaleAllSizes(g_dpiScale);
     static ImVector<ImWchar> subRanges;
     if (subRanges.empty()) {
+        static const ImWchar kExtra[] = { 0x0100, 0x017F, 0x25CF, 0x25CF, 0 };
         ImFontGlyphRangesBuilder gb;
         gb.AddRanges(io.Fonts->GetGlyphRangesChineseSimplifiedCommon());
         gb.AddText(kSubExtraGlyphs);
+        gb.AddText(g_langGlyphs.c_str());
+        gb.AddRanges(kExtra);
         gb.BuildRanges(&subRanges);
     }
+    static ImVector<ImWchar> subHangul;
+    if (subHangul.empty()) buildHangulRanges(subHangul);
     const float px = 18.0f * g_dpiScale;
     if (!io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\msyh.ttc", px, nullptr, subRanges.Data))
         if (!io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\simhei.ttf", px, nullptr, subRanges.Data))
             io.Fonts->AddFontDefault();
+    mergeHangul(io, px, subHangul);
+    g_pacCtx = g_pacWin.ctx;
+    registerImGuiLocalization();
     ImGui_ImplWin32_Init(g_pacWin.hwnd);
     ImGui_ImplDX11_Init(g_pd3dDevice, g_pd3dDeviceContext);
     ImGui::SetCurrentContext(prev);
@@ -4004,6 +4313,7 @@ static void PacWindowShutdown() {
         ImGui::SetCurrentContext(prev == g_pacWin.ctx ? nullptr : prev);
         ImGui::DestroyContext(g_pacWin.ctx);
         g_pacWin.ctx = nullptr;
+        g_pacCtx = nullptr;
     }
     subFreeRTV(g_pacWin);
     if (g_pacWin.swap) { g_pacWin.swap->Release(); g_pacWin.swap = nullptr; }
@@ -4037,9 +4347,16 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
     applyModernStyle();
     ImGui::GetStyle().ScaleAllSizes(g_dpiScale);
 
+    App app;
+    loadIniGameDir(app);
+    collectLangGlyphs(app.gameDir);
+    io.Fonts->Flags |= ImFontAtlasFlags_NoPowerOfTwoHeight;
+
     static const ImWchar kRanges[] = {
         0x0020, 0x00FF,
+        0x0100, 0x017F,
         0x2000, 0x206F,
+        0x20A0, 0x20CF,
         0x2190, 0x21FF,
         0x2460, 0x24FF,
         0x2500, 0x257F,
@@ -4053,19 +4370,31 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
     };
     const float mainPx = 18.0f * g_dpiScale;
     const float chipPx = 26.0f * g_dpiScale;
-    ImFont* f = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\msyh.ttc", mainPx, nullptr, kRanges);
-    if (!f) f = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\simhei.ttf", mainPx, nullptr, kRanges);
+    ImFontConfig cjk;
+    cjk.OversampleH = 1;
+    static ImVector<ImWchar> hangulRanges;
+    if (hangulRanges.empty()) buildHangulRanges(hangulRanges);
+    ImFont* f = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\msyh.ttc", mainPx, &cjk, kRanges);
+    if (!f) f = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\simhei.ttf", mainPx, &cjk, kRanges);
     if (!f) io.Fonts->AddFontDefault();
+    mergeHangul(io, mainPx, hangulRanges);
     static ImVector<ImWchar> chipRanges;
     if (chipRanges.empty()) {
-        static const ImWchar kArrow[] = { 0x2190, 0x21FF, 0 };
+        static const ImWchar kArrow[] = { 0x2190, 0x21FF, 0x0100, 0x017F, 0 };
         ImFontGlyphRangesBuilder gb;
         gb.AddRanges(io.Fonts->GetGlyphRangesChineseSimplifiedCommon());
         gb.AddRanges(kArrow);
+        gb.AddText(g_langGlyphs.c_str());
+        for (const auto& kv : friendlyTableMap()) gb.AddText(kv.second.c_str());
+        for (const char* d : kModLangDirs) { gb.AddText(langDirLabel(d)); gb.AddText(langCodeName(d)); }
+        gb.AddText("语音配置全部生效关闭后退(关本作没有此语言)");
         gb.BuildRanges(&chipRanges);
     }
-    g_chipFont = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\msyh.ttc", chipPx, nullptr, chipRanges.Data);
-    if (!g_chipFont) g_chipFont = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\simhei.ttf", chipPx, nullptr, chipRanges.Data);
+    ImFontConfig chipCfg;
+    chipCfg.OversampleH = 1;
+    g_chipFont = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\msyh.ttc", chipPx, &chipCfg, chipRanges.Data);
+    if (!g_chipFont) g_chipFont = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\simhei.ttf", chipPx, &chipCfg, chipRanges.Data);
+    if (g_chipFont) mergeHangul(io, chipPx, hangulRanges);
     if (!g_chipFont) g_chipFont = f;
 
     ImGui_ImplWin32_Init(hwnd);
@@ -4075,8 +4404,6 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
     cleanupOldFiles();
     startUpdateCheck();
 
-    App app;
-    loadIniGameDir(app);
     if (app.gameDir[0]) {
         std::wstring g = utf82ws(app.gameDir);
         if (!g.empty() && g.back() != L'\\' && g.back() != L'/') g += L'\\';

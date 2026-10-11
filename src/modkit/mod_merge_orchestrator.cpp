@@ -7,6 +7,7 @@
 #include "modkit/generic_tbl.h"
 #include "modkit/fpac_reader.h"
 #include "modkit/mod_archive.h"
+#include "modkit/dds_crypt.h"
 #include "json.hpp"
 
 #include <algorithm>
@@ -61,6 +62,48 @@ static bool writeAll(const fs::path& p, const std::vector<uint8_t>& d) {
 static void writeText(const fs::path& p, const std::string& s) {
     std::error_code ec; fs::create_directories(p.parent_path(), ec);
     std::ofstream f(p, std::ios::binary); f << s;
+}
+
+static bool composeDds(const std::wstring& pacSteamDir, const std::string& rel,
+                       const std::vector<std::pair<std::string, fs::path>>& provs,
+                       std::vector<uint8_t>& out, std::string& why) {
+    if (rel.rfind("asset/dx11/image/", 0) != 0) { why = "不在 asset/dx11/image 下"; return false; }
+    FpacReader pac;
+    std::vector<uint8_t> raw, base;
+    if (!pac.Open(fs::path(pacSteamDir) / "image.pac") || !pac.ReadEntry(rel, raw)) { why = "image.pac 里没有原版"; return false; }
+    std::string err;
+    if (!ddscrypt::Decrypt(raw, base, err)) { why = "原版解不开(" + err + ")"; return false; }
+    const ddscrypt::DdsInfo bi = ddscrypt::Inspect(base.data(), base.size());
+    const size_t head = (bi.fourcc == 0x30315844u) ? 148 : 128;
+    if (!bi.ok || base.size() <= head || (base.size() - head) % 16 != 0) { why = "原版的头 / 数据长度不认识"; return false; }
+    const size_t units = (base.size() - head) / 16;
+    std::vector<std::vector<uint8_t>> mods;
+    for (const auto& p : provs) {
+        const std::string s = readAll(p.second);
+        std::vector<uint8_t> in(s.begin(), s.end()), d;
+        if (!ddscrypt::Decrypt(in, d, err)) { why = p.first + " 那份解不开(" + err + ")"; return false; }
+        if (d.size() != base.size() || std::memcmp(d.data(), base.data(), head) != 0) { why = p.first + " 那份和原版尺寸 / 格式不同"; return false; }
+        mods.push_back(std::move(d));
+    }
+    std::vector<int> owner(units, -1);
+    for (size_t i = 0; i < mods.size(); ++i) {
+        const uint8_t* m = mods[i].data() + head;
+        const uint8_t* b = base.data() + head;
+        for (size_t u = 0; u < units; ++u) {
+            if (std::memcmp(m + u * 16, b + u * 16, 16) == 0) continue;
+            if (owner[u] >= 0 && std::memcmp(m + u * 16, mods[owner[u]].data() + head + u * 16, 16) != 0) {
+                why = provs[owner[u]].first + " 和 " + provs[i].first + " 改了同一处";
+                return false;
+            }
+            owner[u] = static_cast<int>(i);
+        }
+    }
+    std::vector<uint8_t> plain = base;
+    for (size_t u = 0; u < units; ++u) {
+        if (owner[u] >= 0) std::memcpy(plain.data() + head + u * 16, mods[owner[u]].data() + head + u * 16, 16);
+    }
+    if (!ddscrypt::Encrypt(plain, out, err)) { why = "合成后套 LZ4 帧失败(" + err + ")"; return false; }
+    return true;
 }
 
 struct InjectEntry {
@@ -298,6 +341,28 @@ struct TblSrc { fs::path path; std::set<std::string> off; std::string lang; std:
 struct AssetSrc { fs::path src; std::string rel; std::string mod; };
 struct PathSrc { fs::path path; std::string mod; std::string lang; };
 
+struct GameLang { std::string code, tablePac, tablePre, scriptPac, scriptPre; };
+static std::vector<GameLang> DetectGameLangs(const fs::path& pacDir) {
+    std::vector<GameLang> out;
+    std::error_code ec;
+    for (const char* c : { "sc", "tc", "jp", "ko", "kr", "en", "de", "fr", "es" }) {
+        const std::string code = c;
+        if (code == "jp") {
+            if (fs::exists(pacDir / "table.pac", ec) && fs::exists(pacDir / "script.pac", ec))
+                out.push_back({ "jp", "table.pac", "table/", "script.pac", "script/" });
+        } else if (fs::exists(pacDir / ("table_" + code + ".pac"), ec)) {
+            out.push_back({ code, "table_" + code + ".pac", "table_" + code + "/", "script_" + code + ".pac", "script_" + code + "/" });
+        }
+    }
+    return out;
+}
+static const char* const kModLangDirs[] = { "jp", "sc", "tc", "kr", "ko", "en", "de", "fr", "es" };
+static std::string ModLangCode(const std::string& dir, const std::vector<GameLang>& langs) {
+    auto has = [&](const char* c) { for (const auto& l : langs) if (l.code == c) return true; return false; };
+    if (dir == "kr" || dir == "ko") return has("ko") ? "ko" : (has("kr") ? "kr" : "");
+    return has(dir.c_str()) ? dir : "";
+}
+
 RunResult Run(const Paths& paths, bool force) {
     RunResult r;
     std::string log;
@@ -313,6 +378,14 @@ RunResult Run(const Paths& paths, bool force) {
     std::vector<PathSrc> modJsons;
     std::vector<TblSrc> tblDirFiles;
     std::vector<AssetSrc> assetFiles;
+    std::vector<GameLang> langs = DetectGameLangs(paths.pacSteamDir);
+    if (langs.empty()) langs.push_back({ "sc", "table_sc.pac", "table_sc/", "script_sc.pac", "script_sc/" });
+    const std::string primaryLang = langs[0].code;
+    std::map<std::string, std::set<std::string>> modLangs;
+    auto modHas = [&](const std::string& mod, const std::string& code) {
+        auto it = modLangs.find(mod);
+        return it != modLangs.end() && it->second.count(code) > 0;
+    };
     int enabledMods = 0;
     for (const ModInfo& m : manifest) {
         if (!m.enabled) continue;
@@ -417,11 +490,42 @@ RunResult Run(const Paths& paths, bool force) {
               }
               std::sort(vs.begin(), vs.end(), [](const AssetSrc& a, const AssetSrc& b){ return a.rel < b.rel; });
               for (auto& v : vs) assetFiles.push_back(std::move(v)); } }
-        const char* kLangSub[] = { "", "sc", "tc", "kr" };
-        for (const char* Lc : kLangSub) {
-            std::string lang = Lc;
-            std::string pre = lang.empty() ? std::string() : ("/" + lang);
-            { fs::path d = lang.empty() ? (dir / "tbl") : (dir / "tbl" / lang);
+        {
+            static const std::pair<const char*, const wchar_t*> kLangChannels[] = {
+                { "tbl", L".json" }, { "dat", L".dat" }, { "ai", L".dat" }, { "ani", L".dat" }, { "table", L".tbl" } };
+            bool hasLangDir = false;
+            std::set<std::string> ml;
+            for (const auto& chn : kLangChannels) {
+                const fs::path chDir = dir / chn.first;
+                if (!fs::is_directory(chDir, ec)) continue;
+                for (const auto& sd : fs::directory_iterator(chDir, ec)) {
+                    std::error_code e2;
+                    if (!sd.is_directory(e2)) continue;
+                    bool anyFile = false;
+                    for (const auto& f : fs::directory_iterator(sd.path(), e2))
+                        if (f.is_regular_file(e2) && f.path().extension() == chn.second) { anyFile = true; break; }
+                    if (!anyFile) continue;
+                    const std::string dn = wtou8(sd.path().filename().wstring());
+                    if (std::find(std::begin(kModLangDirs), std::end(kModLangDirs), dn) == std::end(kModLangDirs)) {
+                        log += "[modkit] " + m.name + ":" + chn.first + "\\" + dn + "\\ 不是认得的语言子目录(jp / sc / tc / ko / kr / en / de / fr / es),没用上\n";
+                        continue;
+                    }
+                    hasLangDir = true;
+                    const std::string code = ModLangCode(dn, langs);
+                    if (code.empty()) { log += "[modkit] " + m.name + ":" + chn.first + "\\" + dn + "\\ 本作没有这种语言,没用上\n"; continue; }
+                    ml.insert(code);
+                }
+            }
+            if (!hasLangDir) for (const auto& GL : langs) ml.insert(GL.code);
+            modLangs[m.name] = std::move(ml);
+        }
+        std::vector<std::string> langFolders = { "" };
+        for (const char* d : kModLangDirs) langFolders.push_back(d);
+        for (const std::string& folder : langFolders) {
+            const std::string lang = folder.empty() ? std::string() : ModLangCode(folder, langs);
+            if (!folder.empty() && lang.empty()) continue;
+            const std::string pre = folder.empty() ? std::string() : ("/" + folder);
+            { fs::path d = folder.empty() ? (dir / "tbl") : (dir / "tbl" / folder);
               if (fs::is_directory(d, ec)) {
                   std::vector<fs::path> tfs;
                   for (const auto& tf : fs::directory_iterator(d, ec))
@@ -430,7 +534,7 @@ RunResult Run(const Paths& paths, bool force) {
                   std::sort(tfs.begin(), tfs.end());
                   for (auto& t : tfs) { std::string rel = "tbl" + pre + "/" + t.filename().generic_string();
                       tblDirFiles.push_back({ t, entryOffSet(rel), lang, m.name }); } } }
-            { fs::path d = lang.empty() ? (dir / "dat") : (dir / "dat" / lang);
+            { fs::path d = folder.empty() ? (dir / "dat") : (dir / "dat" / folder);
               if (fs::is_directory(d, ec)) {
                   std::vector<fs::path> dfs;
                   for (const auto& df : fs::directory_iterator(d, ec))
@@ -438,7 +542,7 @@ RunResult Run(const Paths& paths, bool force) {
                           && !off("dat" + pre + "/" + df.path().filename().generic_string())) dfs.push_back(df.path());
                   std::sort(dfs.begin(), dfs.end());
                   for (auto& dd : dfs) datReplaceFiles.push_back({ std::move(dd), m.name, lang }); } }
-            { fs::path d = lang.empty() ? (dir / "ai") : (dir / "ai" / lang);
+            { fs::path d = folder.empty() ? (dir / "ai") : (dir / "ai" / folder);
               if (fs::is_directory(d, ec)) {
                   std::vector<fs::path> afs;
                   for (const auto& af : fs::directory_iterator(d, ec))
@@ -446,7 +550,7 @@ RunResult Run(const Paths& paths, bool force) {
                           && !off("ai" + pre + "/" + af.path().filename().generic_string())) afs.push_back(af.path());
                   std::sort(afs.begin(), afs.end());
                   for (auto& a : afs) aiFiles.push_back({ std::move(a), m.name, lang }); } }
-            { fs::path d = lang.empty() ? (dir / "ani") : (dir / "ani" / lang);
+            { fs::path d = folder.empty() ? (dir / "ani") : (dir / "ani" / folder);
               if (fs::is_directory(d, ec)) {
                   std::vector<fs::path> nfs;
                   for (const auto& nf : fs::directory_iterator(d, ec))
@@ -454,7 +558,7 @@ RunResult Run(const Paths& paths, bool force) {
                           && !off("ani" + pre + "/" + nf.path().filename().generic_string())) nfs.push_back(nf.path());
                   std::sort(nfs.begin(), nfs.end());
                   for (auto& n : nfs) aniFiles.push_back({ std::move(n), m.name, lang }); } }
-            { fs::path d = lang.empty() ? (dir / "table") : (dir / "table" / lang);
+            { fs::path d = folder.empty() ? (dir / "table") : (dir / "table" / folder);
               if (fs::is_directory(d, ec)) {
                   std::vector<fs::path> tfs;
                   for (const auto& tf : fs::directory_iterator(d, ec))
@@ -469,16 +573,10 @@ RunResult Run(const Paths& paths, bool force) {
     if (patchFiles.empty() && injectFiles.empty() && tblDirFiles.empty() && datReplaceFiles.empty() && tableReplaceFiles.empty() && assetFiles.empty() && datPatchFiles.empty() && aiFiles.empty() && aniFiles.empty())
         log += "[modkit] (no enabled mod content -> producing clean/vanilla cache)\n";
 
-    std::vector<std::string> langs;
-    for (const char* L : { "sc", "tc", "kr" })
-        if (fs::exists(fs::path(paths.pacSteamDir) / (std::string("table_") + L + ".pac"), ec)) langs.push_back(L);
-    if (langs.empty()) langs.push_back("sc");
-    std::string primaryLang = (std::find(langs.begin(), langs.end(), "sc") != langs.end()) ? "sc" : langs[0];
-
     std::string fpInput;
-    fpInput += "OUTPUTS:ai,mod_chars,mod_chars_json\n";
+    fpInput += "OUTPUTS:ai,mod_chars,mod_chars_json,all_langs\n";
     fpInput += "SCHEMA:" + std::to_string(TblSchemaFingerprint()) + "\n";
-    { fpInput += "LANGS:"; for (const auto& L : langs) { fpInput += L; fpInput += ","; } fpInput += "\n"; }
+    { fpInput += "LANGS:"; for (const auto& GL : langs) { fpInput += GL.code; fpInput += ","; } fpInput += "\n"; }
     for (const auto& m : manifest) {
         fpInput += "MOD:"; fpInput += m.name; fpInput += m.enabled ? "=1" : "=0";
         for (const auto& d : m.disabled) { fpInput += ";off:"; fpInput += d; }
@@ -508,23 +606,50 @@ RunResult Run(const Paths& paths, bool force) {
     }
 
     { std::error_code ce;
-      std::set<std::string> clearDirs = { "table", "table_sc", "table_tc", "table_kr",
-        "scene", "script", "script_sc", "script_tc", "script_kr", "asset", "vfx" };
+      std::set<std::string> clearDirs = { "scene", "asset", "vfx", "voice", "se", "bgm1", "bgm2", "bgm3" };
+      for (const auto& e : fs::directory_iterator(paths.cacheDir, ce)) {
+          std::error_code e2;
+          if (!e.is_directory(e2)) continue;
+          const std::string n = wtou8(e.path().filename().wstring());
+          if (n == "table" || n == "script" || n.rfind("table_", 0) == 0 || n.rfind("script_", 0) == 0) clearDirs.insert(n);
+      }
+      ce.clear();
       for (const auto& a : assetFiles) {
           auto pos = a.rel.find('/');
           if (pos != std::string::npos) clearDirs.insert(a.rel.substr(0, pos));
       }
-      for (const auto& sub : clearDirs) fs::remove_all(fs::path(paths.cacheDir) / sub, ce); }
+      for (const auto& sub : clearDirs) fs::remove_all(fs::path(paths.cacheDir) / u8tow(sub), ce); }
 
     nlohmann::json report;
     report["version"] = 1;
     report["mods"] = nlohmann::json::array();
     report["errors"] = nlohmann::json::array();
     for (const ModInfo& m : manifest) report["mods"].push_back({ {"name", m.name}, {"enabled", m.enabled} });
-    auto pushErr = [&](const std::string& where, const std::vector<std::string>& mods, const std::string& detail) {
+    auto pushErr = [&](const std::string& where, const std::vector<std::string>& mods, const std::string& detail,
+                       const std::set<std::string>& langsOf = {}) {
         nlohmann::json e; e["where"] = where; e["detail"] = detail; e["mods"] = nlohmann::json::array();
         for (const auto& m : mods) e["mods"].push_back(m);
+        if (!langsOf.empty() && langsOf.size() < langs.size()) {
+            e["langs"] = nlohmann::json::array();
+            for (const auto& GL : langs) if (langsOf.count(GL.code)) e["langs"].push_back(GL.code);
+        }
         report["errors"].push_back(std::move(e));
+    };
+    struct LangErr { std::string where, detail; std::vector<std::string> mods; std::set<std::string> langs; };
+    auto addLangErr = [&](std::vector<LangErr>& errs, const std::string& where, const std::vector<std::string>& mods,
+                          const std::string& detail, const std::string& L) {
+        for (auto& e : errs) {
+            if (e.where != where || e.detail != detail) continue;
+            e.langs.insert(L);
+            for (const auto& m : mods) if (std::find(e.mods.begin(), e.mods.end(), m) == e.mods.end()) e.mods.push_back(m);
+            return;
+        }
+        errs.push_back({ where, detail, mods, { L } });
+        ++r.failed;
+    };
+    auto flushLangErrs = [&](std::vector<LangErr>& errs) {
+        for (const auto& e : errs) pushErr(e.where, e.mods, e.detail, e.langs);
+        errs.clear();
     };
 
     std::map<std::string, PatchConfig> byTarget;
@@ -591,8 +716,11 @@ RunResult Run(const Paths& paths, bool force) {
     std::vector<std::string> itemAddMods;
     std::vector<uint8_t> itemTbl;
 
+    std::vector<LangErr> tblErrs;
+    std::set<std::string> reportedStems;
     if (!allHooks.empty() || !tblDirFiles.empty()) {
-        for (const std::string& L : langs) {
+        for (const GameLang& GL : langs) {
+            const std::string& L = GL.code;
             const bool isPrimary = (L == primaryLang);
             std::map<std::string, TblGroup> tblAcc;
             for (const LpRow& h : allHooks) {
@@ -605,7 +733,7 @@ RunResult Run(const Paths& paths, bool force) {
                 addToGroup(tblAcc["t_lookpoint"], std::move(one));
             }
             for (const auto& tf : tblDirFiles) {
-                if (!(tf.lang.empty() || tf.lang == L)) continue;
+                if (tf.lang.empty() ? !modHas(tf.mod, L) : tf.lang != L) continue;
                 const std::string stem = tblTargetOf(tf.path);
                 const std::string& modName = tf.mod;
                 TblAccum one;
@@ -616,14 +744,14 @@ RunResult Run(const Paths& paths, bool force) {
             }
             if (tblAcc.empty()) continue;
 
-            const std::string pacName  = "table_" + L + ".pac";
-            const std::string entryPre = "table_" + L + "/";
-            const std::string outSub   = "table_" + L;
+            const std::string& pacName  = GL.tablePac;
+            const std::string& entryPre = GL.tablePre;
+            const std::string outSub    = "table_" + L;
 
             FpacReader pacTable;
             if (!pacTable.Open(fs::path(paths.pacSteamDir) / pacName)) {
-                ++r.failed; log += "[modkit] cannot open " + pacName + "\n";
-                if (isPrimary) pushErr(pacName, {}, "无法打开 " + pacName + "(检查游戏 pac\\steam)");
+                log += "[modkit] cannot open " + pacName + "\n";
+                addLangErr(tblErrs, pacName, {}, "无法打开 " + pacName + "(检查游戏 pac\\steam)", L);
                 continue;
             }
             for (auto& kv : tblAcc) {
@@ -632,8 +760,8 @@ RunResult Run(const Paths& paths, bool force) {
                 std::vector<std::string> tmods(grp.mods.begin(), grp.mods.end());
                 std::vector<uint8_t> origTbl;
                 if (!pacTable.ReadEntry(entryPre + stem + ".tbl", origTbl)) {
-                    ++r.failed; log += "[modkit] no pac entry " + entryPre + stem + ".tbl\n";
-                    if (isPrimary) pushErr(stem + ".tbl", tmods, "pac 内无此表(表名/文件名错?)"); continue;
+                    log += "[modkit] no pac entry " + entryPre + stem + ".tbl\n";
+                    addLangErr(tblErrs, stem + ".tbl", tmods, "pac 内无此表(表名/文件名错?)", L); continue;
                 }
                 std::vector<uint8_t> outBytes = origTbl;
                 std::vector<tbl_merge::TblConflict> conflicts;
@@ -645,18 +773,18 @@ RunResult Run(const Paths& paths, bool force) {
                     std::vector<uint8_t> next; std::string e2;
                     if (!a.cloneRows.empty()) {
                         if (!a.addRows.empty() || !a.edits.empty()) {
-                            ++r.failed; log += "[modkit] tbl FAIL " + what + ": clone_rows 不能与 add_rows/edit_rows 混用\n"; if (isPrimary) pushErr(stem + ".tbl", tmods, "clone_rows 不能与 add_rows/edit_rows 混用"); okTbl = false; break;
+                            log += "[modkit] tbl FAIL " + outSub + "/" + what + ": clone_rows 不能与 add_rows/edit_rows 混用\n"; addLangErr(tblErrs, stem + ".tbl", tmods, "clone_rows 不能与 add_rows/edit_rows 混用", L); okTbl = false; break;
                         }
                         if (!tbl_merge::CloneRowsPoolTable(outBytes, paths.schemasDir, "Sora1", a.table, a.cloneRows, next, e2)) {
-                            ++r.failed; log += "[modkit] tbl clone FAIL " + what + ": " + e2 + "\n"; if (isPrimary) pushErr(stem + ".tbl", tmods, e2); okTbl = false; break;
+                            log += "[modkit] tbl clone FAIL " + outSub + "/" + what + ": " + e2 + "\n"; addLangErr(tblErrs, stem + ".tbl", tmods, e2, L); okTbl = false; break;
                         }
                     } else {
                         if (tbl_merge::TblHasUnmodeledPool(outBytes, paths.schemasDir, "Sora1")) {
-                            ++r.failed; log += "[modkit] tbl FAIL " + what + ": 该表带数据池,add_rows/edit_rows 会损坏;请用 clone_rows 或 table\\ 整文件替换\n";
-                            if (isPrimary) pushErr(stem + ".tbl", tmods, "带数据池的表,请用 clone_rows 或 table\\ 整文件替换(add_rows/edit_rows 会损坏)"); okTbl = false; break;
+                            log += "[modkit] tbl FAIL " + outSub + "/" + what + ": 该表带数据池,add_rows/edit_rows 会损坏;请用 clone_rows 或 table\\ 整文件替换\n";
+                            addLangErr(tblErrs, stem + ".tbl", tmods, "带数据池的表,请用 clone_rows 或 table\\ 整文件替换(add_rows/edit_rows 会损坏)", L); okTbl = false; break;
                         }
                         if (!tbl_merge::ApplyTblPatch(outBytes, paths.schemasDir, "Sora1", a.table, a.addRows, a.edits, next, e2, &conflicts)) {
-                            ++r.failed; log += "[modkit] tbl FAIL " + what + ": " + e2 + "\n"; if (isPrimary) pushErr(stem + ".tbl", tmods, e2); okTbl = false; break;
+                            log += "[modkit] tbl FAIL " + outSub + "/" + what + ": " + e2 + "\n"; addLangErr(tblErrs, stem + ".tbl", tmods, e2, L); okTbl = false; break;
                         }
                     }
                     outBytes.swap(next);
@@ -667,9 +795,8 @@ RunResult Run(const Paths& paths, bool force) {
                 if (!okTbl) continue;
                 if (!subLog.empty()) subLog += "]";
                 if (writeAll(fs::path(paths.cacheDir) / outSub / (stem + ".tbl"), outBytes)) {
-                    if (isPrimary) ++r.tbls;
                     log += "[modkit] merged " + outSub + "/" + stem + ".tbl (+" + std::to_string(nAdd) + " rows, " + std::to_string(nEdit) + " edits, " + std::to_string(nClone) + " clones)" + subLog + "\n";
-                } else { ++r.failed; log += "[modkit] write FAIL " + outSub + "/" + stem + "\n"; if (isPrimary) pushErr(stem + ".tbl", tmods, "写缓存失败"); continue; }
+                } else { log += "[modkit] write FAIL " + outSub + "/" + stem + "\n"; addLangErr(tblErrs, stem + ".tbl", tmods, "写缓存失败", L); continue; }
                 if (isPrimary && stem == "t_name") {
                     for (const TblAccum& a : grp.subs) {
                         if (a.addRows.empty()) continue;
@@ -684,7 +811,8 @@ RunResult Run(const Paths& paths, bool force) {
                     }
                 }
 
-                if (!isPrimary) continue;
+                if (!reportedStems.insert(stem).second) continue;
+                ++r.tbls;
                 nlohmann::json tj;
                 tj["table"] = stem;
                 tj["mods"] = nlohmann::json::array();
@@ -710,6 +838,7 @@ RunResult Run(const Paths& paths, bool force) {
             }
         }
     }
+    flushLangErrs(tblErrs);
 
     struct ModCharRow { int64_t id; int slot; std::string name, face, mod; int64_t level; double expCoef; };
     std::vector<ModCharRow> modCharRows;
@@ -720,8 +849,8 @@ RunResult Run(const Paths& paths, bool force) {
             std::vector<uint8_t> statBytes = charStatusTbl;
             if (statBytes.empty()) {
                 FpacReader pr;
-                if (pr.Open(fs::path(paths.pacSteamDir) / ("table_" + primaryLang + ".pac")))
-                    pr.ReadEntry("table_" + primaryLang + "/t_status.tbl", statBytes);
+                if (pr.Open(fs::path(paths.pacSteamDir) / langs[0].tablePac))
+                    pr.ReadEntry(langs[0].tablePre + "t_status.tbl", statBytes);
             }
             TblFileG nameF, statF;
             std::string e1, e2;
@@ -800,10 +929,14 @@ RunResult Run(const Paths& paths, bool force) {
             { "camp_orbment", true },
             { "field_leader", false },
             { "camp_equip", false },
+            { "camp_status", false },
+            { "camp_costume", false },
+            { "camp_top", false },
             { "break_stat_cap", false },
             { "clone_arts", false },
             { "party_support", false },
             { "overdrive", false },
+            { "battle_as_member", false },
         };
         struct CharInt { const char* key; int64_t def, lo, hi; };
         static const CharInt kCharInts[] = {
@@ -980,19 +1113,30 @@ RunResult Run(const Paths& paths, bool force) {
         for (const auto& jf : injectFiles) {
             fs::path moddir = jf.path.parent_path();
             for (const auto& e : parseScriptInject(jf.path, jf.mod, jf.lang, log)) {
-                bool have = false;
+                std::set<std::string> covered;
+                std::error_code fe;
                 std::string s = readAll(e.datPath);
                 if (!s.empty()) {
                     std::vector<uint8_t> bytes(s.begin(), s.end());
-                    if (writeAll(fs::path(paths.cacheDir) / "script" / (e.script + ".dat"), bytes)) have = true;
+                    for (const auto& GL : langs)
+                        if (modHas(e.mod, GL.code) && writeAll(fs::path(paths.cacheDir) / ("script_" + GL.code) / (e.script + ".dat"), bytes))
+                            covered.insert(GL.code);
                 }
-                if (fs::exists(moddir / "dat" / (e.script + ".dat"))) have = true;
-                for (const char* L : { "sc", "tc", "kr" })
-                    if (fs::exists(moddir / "dat" / L / (e.script + ".dat"))) have = true;
-                if (!have) {
+                if (fs::exists(moddir / "dat" / (e.script + ".dat"), fe))
+                    for (const auto& GL : langs) if (modHas(e.mod, GL.code)) covered.insert(GL.code);
+                for (const char* d : kModLangDirs) {
+                    const std::string code = ModLangCode(d, langs);
+                    if (!code.empty() && fs::exists(moddir / "dat" / d / (e.script + ".dat"), fe)) covered.insert(code);
+                }
+                if (covered.empty()) {
                     log += "[modkit] add_dat_ini WARN: \"" + e.script + "\" 无对话 dat(放 Mod\\" + e.mod + "\\dat\\<lang>\\" + e.script + ".dat)\n";
                     pushErr("add_dat_ini \"" + e.script + "\"", { e.mod }, "缺对话 dat:" + e.script + ".dat");
                     continue;
+                }
+                if (covered.size() < langs.size()) {
+                    std::string miss;
+                    for (const auto& GL : langs) if (!covered.count(GL.code)) miss += (miss.empty() ? "" : " / ") + GL.code;
+                    log += "[modkit] add_dat_ini \"" + e.script + "\":这几种语言没有对话 dat,进图加载不到:" + miss + "\n";
                 }
                 ++r.injected;
                 std::string key = e.map + "\t" + e.script;
@@ -1035,85 +1179,113 @@ RunResult Run(const Paths& paths, bool force) {
         writeText(fs::path(paths.cacheDir).parent_path() / "mon_event.list", table);
     }
 
-    {
-        report["datReplace"] = nlohmann::json::array();
-        report["datConflicts"] = nlohmann::json::array();
-        struct Prov { std::string mod; fs::path path; };
-        std::map<std::string, std::vector<Prov>> byKey;
-        std::vector<std::string> order;
-        for (const auto& df : datReplaceFiles) {
-            std::string stem = df.path.stem().string();
-            std::string key = df.lang + "/" + stem;
-            if (byKey.find(key) == byKey.end()) order.push_back(key);
-            byKey[key].push_back({ df.mod, df.path });
-        }
-        for (const std::string& key : order) {
-            auto& provs = byKey[key];
-            std::string lang = key.substr(0, key.find('/'));
-            std::string stem = key.substr(key.find('/') + 1);
-            std::string sub = lang.empty() ? "script" : ("script_" + lang);
-            std::string tag = lang.empty() ? "" : ("[" + lang + "]");
-            const auto& win = provs.back();
-            std::string s = readAll(win.path);
-            if (s.empty()) { ++r.failed; log += "[modkit] dat_replace empty/missing: " + win.path.generic_string() + "\n"; pushErr("dat 替换 \"" + stem + "\"" + tag, { win.mod }, "dat 为空/读取失败"); continue; }
-            std::vector<uint8_t> bytes(s.begin(), s.end());
-            fs::path dst = fs::path(paths.cacheDir) / sub / (stem + ".dat");
-            if (!writeAll(dst, bytes)) { ++r.failed; log += "[modkit] dat_replace copy FAIL " + dst.generic_string() + "\n"; pushErr("dat 替换 \"" + stem + "\"" + tag, { win.mod }, "写缓存失败"); continue; }
-            nlohmann::json di; di["name"] = stem; di["lang"] = lang; di["winner"] = win.mod; di["mods"] = nlohmann::json::array();
-            for (auto& p : provs) di["mods"].push_back(p.mod);
-            report["datReplace"].push_back(std::move(di));
-            log += "[modkit] dat_replace " + sub + "/" + stem + ".dat <- " + win.mod + (provs.size() > 1 ? " (覆盖其它)" : "") + "\n";
-            for (size_t i = 0; i + 1 < provs.size(); ++i) {
-                ++r.conflicts;
-                report["datConflicts"].push_back({ {"name", stem}, {"lang", lang}, {"fromMod", provs[i].mod}, {"byMod", win.mod} });
-                log += "[modkit] CONFLICT dat " + sub + "/" + stem + ".dat: " + provs[i].mod + " -> " + win.mod + " [winner,整文件]\n";
+    struct WholeProv { std::string mod; fs::path path; };
+    struct WholeOut { std::string lang, name; std::vector<WholeProv> provs; };
+    auto expandWhole = [&](const std::vector<PathSrc>& files, auto nameOf) {
+        std::map<std::string, size_t> idx;
+        std::vector<WholeOut> outs;
+        for (const auto& f : files) {
+            const std::string name = nameOf(f);
+            std::vector<std::string> ls;
+            if (!f.lang.empty()) ls.push_back(f.lang);
+            else for (const auto& GL : langs) if (modHas(f.mod, GL.code)) ls.push_back(GL.code);
+            for (const auto& L : ls) {
+                const std::string key = L + "/" + name;
+                auto it = idx.find(key);
+                if (it == idx.end()) { it = idx.emplace(key, outs.size()).first; outs.push_back({ L, name, {} }); }
+                outs[it->second].provs.push_back({ f.mod, f.path });
             }
         }
+        return outs;
+    };
+    report["datConflicts"] = nlohmann::json::array();
+    std::map<std::string, size_t> wholeConfIdx;
+    auto noteWholeConflicts = [&](const WholeOut& o, const std::string& repName, const std::string& logWhat) {
+        const std::string& by = o.provs.back().mod;
+        bool any = false;
+        std::set<std::string> seen;
+        for (size_t i = 0; i + 1 < o.provs.size(); ++i) {
+            const std::string& from = o.provs[i].mod;
+            if (from == by || !seen.insert(from).second) continue;
+            any = true;
+            log += "[modkit] CONFLICT " + logWhat + ": " + from + " -> " + by + " [winner,整文件]\n";
+            const std::string key = repName + "\x1f" + from + "\x1f" + by;
+            auto it = wholeConfIdx.find(key);
+            if (it == wholeConfIdx.end()) {
+                ++r.conflicts;
+                wholeConfIdx[key] = report["datConflicts"].size();
+                report["datConflicts"].push_back({ {"name", repName}, {"lang", o.lang}, {"langs", nlohmann::json::array({ o.lang })},
+                                                   {"fromMod", from}, {"byMod", by} });
+            } else {
+                report["datConflicts"][it->second]["langs"].push_back(o.lang);
+            }
+        }
+        return any;
+    };
+    auto noteWholeOut = [&](nlohmann::json& arr, std::map<std::string, size_t>& index, const WholeOut& o) {
+        const std::string key = o.name + "\x1f" + o.provs.back().mod;
+        auto it = index.find(key);
+        const bool first = (it == index.end());
+        if (first) {
+            nlohmann::json one; one["name"] = o.name; one["winner"] = o.provs.back().mod;
+            one["mods"] = nlohmann::json::array();
+            std::set<std::string> seen;
+            for (const auto& p : o.provs) if (seen.insert(p.mod).second) one["mods"].push_back(p.mod);
+            one["langs"] = nlohmann::json::array();
+            it = index.emplace(key, arr.size()).first;
+            arr.push_back(std::move(one));
+        }
+        arr[it->second]["langs"].push_back(o.lang);
+        return first;
+    };
+
+    {
+        report["datReplace"] = nlohmann::json::array();
+        std::map<std::string, size_t> repIdx;
+        std::vector<LangErr> errs;
+        for (const WholeOut& o : expandWhole(datReplaceFiles, [](const PathSrc& f) { return f.path.stem().string(); })) {
+            const std::string sub = "script_" + o.lang;
+            const auto& win = o.provs.back();
+            std::string s = readAll(win.path);
+            if (s.empty()) { log += "[modkit] dat_replace empty/missing: " + win.path.generic_string() + "\n"; addLangErr(errs, "dat 替换 \"" + o.name + "\"", { win.mod }, "dat 为空/读取失败", o.lang); continue; }
+            std::vector<uint8_t> bytes(s.begin(), s.end());
+            fs::path dst = fs::path(paths.cacheDir) / sub / (o.name + ".dat");
+            if (!writeAll(dst, bytes)) { log += "[modkit] dat_replace copy FAIL " + dst.generic_string() + "\n"; addLangErr(errs, "dat 替换 \"" + o.name + "\"", { win.mod }, "写缓存失败", o.lang); continue; }
+            noteWholeOut(report["datReplace"], repIdx, o);
+            const bool over = noteWholeConflicts(o, o.name, "dat " + sub + "/" + o.name + ".dat");
+            log += "[modkit] dat_replace " + sub + "/" + o.name + ".dat <- " + win.mod + (over ? " (覆盖其它)" : "") + "\n";
+        }
+        flushLangErrs(errs);
     }
 
     auto deployScripts = [&](const std::vector<PathSrc>& files, const std::string& dir, const std::string& what) {
         report[dir] = nlohmann::json::array();
-        struct Prov { std::string mod; fs::path path; };
-        std::map<std::string, std::vector<Prov>> byKey;
-        std::vector<std::string> order;
-        for (const auto& af : files) {
-            std::string key = af.lang + "/" + wtou8(af.path.filename().wstring());
-            if (byKey.find(key) == byKey.end()) order.push_back(key);
-            byKey[key].push_back({ af.mod, af.path });
-        }
-        for (const std::string& key : order) {
-            auto& provs = byKey[key];
-            std::string lang = key.substr(0, key.find('/'));
-            std::string fname = key.substr(key.find('/') + 1);
-            std::string sub = lang.empty() ? "script" : ("script_" + lang);
-            std::string tag = lang.empty() ? "" : ("[" + lang + "]");
-            const auto& win = provs.back();
+        std::map<std::string, size_t> repIdx;
+        std::vector<LangErr> errs;
+        for (const WholeOut& o : expandWhole(files, [](const PathSrc& f) { return wtou8(f.path.filename().wstring()); })) {
+            const std::string sub = "script_" + o.lang;
+            const auto& win = o.provs.back();
             std::string s = readAll(win.path);
             if (s.size() < 4 || s.compare(0, 4, "#scp") != 0) {
-                ++r.failed; log += "[modkit] " + dir + " 不是 #scp 脚本(或读不到): " + wtou8(win.path.wstring()) + "\n";
-                pushErr(what + " \"" + fname + "\"" + tag, { win.mod }, "不是 #scp 脚本(或读取失败)"); continue;
+                log += "[modkit] " + dir + " 不是 #scp 脚本(或读不到): " + wtou8(win.path.wstring()) + "\n";
+                addLangErr(errs, what + " \"" + o.name + "\"", { win.mod }, "不是 #scp 脚本(或读取失败)", o.lang); continue;
             }
             std::vector<uint8_t> bytes(s.begin(), s.end());
             fs::path dst = fs::path(paths.cacheDir) / sub / dir / win.path.filename();
-            if (!writeAll(dst, bytes)) { ++r.failed; log += "[modkit] " + dir + " copy FAIL " + sub + "/" + dir + "/" + fname + "\n"; pushErr(what + " \"" + fname + "\"" + tag, { win.mod }, "写缓存失败"); continue; }
-            nlohmann::json one; one["name"] = fname; one["lang"] = lang; one["winner"] = win.mod; one["mods"] = nlohmann::json::array();
-            for (auto& p : provs) one["mods"].push_back(p.mod);
-            report[dir].push_back(std::move(one));
-            log += "[modkit] " + dir + " " + sub + "/" + dir + "/" + fname + " <- " + win.mod + (provs.size() > 1 ? " (覆盖其它)" : "") + "\n";
-            for (size_t i = 0; i + 1 < provs.size(); ++i) {
-                ++r.conflicts;
-                report["datConflicts"].push_back({ {"name", dir + "/" + fname}, {"lang", lang}, {"fromMod", provs[i].mod}, {"byMod", win.mod} });
-                log += "[modkit] CONFLICT " + dir + " " + sub + "/" + dir + "/" + fname + ": " + provs[i].mod + " -> " + win.mod + " [winner,整文件]\n";
-            }
+            if (!writeAll(dst, bytes)) { log += "[modkit] " + dir + " copy FAIL " + sub + "/" + dir + "/" + o.name + "\n"; addLangErr(errs, what + " \"" + o.name + "\"", { win.mod }, "写缓存失败", o.lang); continue; }
+            noteWholeOut(report[dir], repIdx, o);
+            const bool over = noteWholeConflicts(o, dir + "/" + o.name, dir + " " + sub + "/" + dir + "/" + o.name);
+            log += "[modkit] " + dir + " " + sub + "/" + dir + "/" + o.name + " <- " + win.mod + (over ? " (覆盖其它)" : "") + "\n";
         }
+        flushLangErrs(errs);
     };
     deployScripts(aiFiles, "ai", "AI");
     deployScripts(aniFiles, "ani", "动作脚本");
 
     {
         report["listExtraLoad"] = nlohmann::json::array();
-        struct Acc { std::vector<DatInsertCall> inserts; std::set<std::string> mods; };
-        std::map<std::string, Acc> byTarget;
+        struct Part { std::string mod; std::vector<DatInsertCall> inserts; };
+        std::map<std::string, std::vector<Part>> byTarget;
         std::vector<std::string> targets;
         for (const auto& pf : datPatchFiles) {
             DatPatchConfig cfg; std::string e;
@@ -1125,73 +1297,77 @@ RunResult Run(const Paths& paths, bool force) {
             }
             std::string target = cfg.target.empty() ? pf.path.stem().string() : cfg.target;
             if (byTarget.find(target) == byTarget.end()) targets.push_back(target);
-            Acc& a = byTarget[target];
-            for (auto& ic : cfg.inserts) a.inserts.push_back(std::move(ic));
-            a.mods.insert(pf.mod);
+            byTarget[target].push_back({ pf.mod, std::move(cfg.inserts) });
         }
+        std::map<std::string, FpacReader> scriptPacs;
+        std::map<std::string, bool> scriptPacOk;
+        std::vector<LangErr> errs;
         for (const std::string& target : targets) {
-            Acc& acc = byTarget[target];
-            std::vector<std::string> tmods(acc.mods.begin(), acc.mods.end());
-            int done = 0; std::string lastErr;
-            for (const std::string& L : langs) {
-                FpacReader pacScript;
-                if (!pacScript.Open(fs::path(paths.pacSteamDir) / ("script_" + L + ".pac"))) continue;
-                fs::path dst = fs::path(paths.cacheDir) / ("script_" + L) / (target + ".dat");
+            const auto& parts = byTarget[target];
+            std::set<std::string> modSet;
+            for (const auto& p : parts) modSet.insert(p.mod);
+            std::vector<std::string> tmods(modSet.begin(), modSet.end());
+            std::vector<std::string> doneLangs;
+            size_t maxInserts = 0;
+            std::set<std::string> missing;
+            for (const GameLang& GL : langs) {
+                std::vector<DatInsertCall> inserts;
+                for (const auto& p : parts) if (modHas(p.mod, GL.code)) inserts.insert(inserts.end(), p.inserts.begin(), p.inserts.end());
+                if (inserts.empty()) continue;
+                if (!scriptPacOk.count(GL.code)) scriptPacOk[GL.code] = scriptPacs[GL.code].Open(fs::path(paths.pacSteamDir) / GL.scriptPac);
+                if (!scriptPacOk[GL.code]) { addLangErr(errs, GL.scriptPac, {}, "无法打开 " + GL.scriptPac + "(检查游戏 pac\\steam)", GL.code); continue; }
+                fs::path dst = fs::path(paths.cacheDir) / ("script_" + GL.code) / (target + ".dat");
                 std::vector<uint8_t> orig;
                 std::string cached = readAll(dst);
                 if (!cached.empty()) orig.assign(cached.begin(), cached.end());
-                else if (!pacScript.ReadEntry("script_" + L + "/scena/" + target + ".dat", orig)) continue;
+                else if (!scriptPacs[GL.code].ReadEntry(GL.scriptPre + "scena/" + target + ".dat", orig)) { missing.insert(GL.code); continue; }
                 std::vector<uint8_t> outBytes;
-                if (!ApplyDatPatch(orig, acc.inserts, outBytes, lastErr)) break;
-                if (!writeAll(dst, outBytes)) { lastErr = "写缓存失败"; break; }
-                ++done;
+                std::string err;
+                if (!ApplyDatPatch(orig, inserts, outBytes, err)) {
+                    log += "[modkit] ListExtraLoad FAIL script_" + GL.code + "/" + target + ".dat: " + err + "\n";
+                    addLangErr(errs, "ListExtraLoad \"" + target + "\"", tmods, err, GL.code); continue;
+                }
+                if (!writeAll(dst, outBytes)) { addLangErr(errs, "ListExtraLoad \"" + target + "\"", tmods, "写缓存失败", GL.code); continue; }
+                doneLangs.push_back(GL.code);
+                maxInserts = std::max(maxInserts, inserts.size());
             }
-            if (done == 0) {
-                ++r.failed;
-                if (lastErr.empty()) lastErr = "任何语言的 script pac 里都没有 " + target + ".dat";
-                log += "[modkit] ListExtraLoad FAIL " + target + ": " + lastErr + "\n";
-                pushErr("ListExtraLoad \"" + target + "\"", tmods, lastErr);
-                continue;
+            if (!missing.empty() && doneLangs.empty()) {
+                const std::string why = "任何语言的 script pac 里都没有 " + target + ".dat";
+                log += "[modkit] ListExtraLoad FAIL " + target + ": " + why + "\n";
+                for (const auto& L : missing) addLangErr(errs, "ListExtraLoad \"" + target + "\"", tmods, why, L);
+            } else if (!missing.empty()) {
+                std::string ml;
+                for (const auto& L : missing) ml += (ml.empty() ? "" : " / ") + L;
+                log += "[modkit] ListExtraLoad " + target + ".dat:这几种语言的 script pac 里没有它,没打:" + ml + "\n";
             }
+            if (doneLangs.empty()) continue;
             ++r.merged;
-            report["listExtraLoad"].push_back({ {"name", target}, {"inserts", acc.inserts.size()},
-                                           {"langs", done}, {"mods", tmods} });
-            log += "[modkit] ListExtraLoad " + target + ".dat (+" + std::to_string(acc.inserts.size())
-                 + " 处插入, " + std::to_string(done) + " 个语言)\n";
+            report["listExtraLoad"].push_back({ {"name", target}, {"inserts", maxInserts},
+                                                {"langs", doneLangs}, {"mods", tmods} });
+            log += "[modkit] ListExtraLoad " + target + ".dat (+" + std::to_string(maxInserts)
+                 + " 处插入, " + std::to_string(doneLangs.size()) + " 个语言)\n";
         }
+        flushLangErrs(errs);
     }
 
     {
         report["tableReplace"] = nlohmann::json::array();
-        struct Prov { std::string mod; fs::path path; };
-        std::map<std::string, std::vector<Prov>> byKey;
-        std::vector<std::string> order;
-        for (const auto& tf : tableReplaceFiles) {
-            std::string stem = tf.path.stem().string();
-            std::string key = tf.lang + "/" + stem;
-            if (byKey.find(key) == byKey.end()) order.push_back(key);
-            byKey[key].push_back({ tf.mod, tf.path });
-        }
-        for (const std::string& key : order) {
-            auto& provs = byKey[key];
-            std::string lang = key.substr(0, key.find('/'));
-            std::string stem = key.substr(key.find('/') + 1);
-            std::string sub = lang.empty() ? "table" : ("table_" + lang);
-            std::string tag = lang.empty() ? "" : ("[" + lang + "]");
-            const auto& win = provs.back();
+        std::map<std::string, size_t> repIdx;
+        std::vector<LangErr> errs;
+        std::set<std::string> counted;
+        for (const WholeOut& o : expandWhole(tableReplaceFiles, [](const PathSrc& f) { return f.path.stem().string(); })) {
+            const std::string sub = "table_" + o.lang;
+            const auto& win = o.provs.back();
             std::string s = readAll(win.path);
-            if (s.empty()) { ++r.failed; log += "[modkit] table_replace empty/missing: " + win.path.generic_string() + "\n"; pushErr("table 替换 \"" + stem + "\"" + tag, { win.mod }, "tbl 为空/读取失败"); continue; }
+            if (s.empty()) { log += "[modkit] table_replace empty/missing: " + win.path.generic_string() + "\n"; addLangErr(errs, "table 替换 \"" + o.name + "\"", { win.mod }, "tbl 为空/读取失败", o.lang); continue; }
             std::vector<uint8_t> bytes(s.begin(), s.end());
-            if (!writeAll(fs::path(paths.cacheDir) / sub / (stem + ".tbl"), bytes)) { ++r.failed; log += "[modkit] table_replace copy FAIL " + stem + "\n"; pushErr("table 替换 \"" + stem + "\"" + tag, { win.mod }, "写缓存失败"); continue; }
-            ++r.tbls;
-            report["tableReplace"].push_back({ {"name", stem}, {"lang", lang}, {"winner", win.mod} });
-            log += "[modkit] table_replace " + sub + "/" + stem + ".tbl <- " + win.mod + (provs.size() > 1 ? " (覆盖其它)" : "") + "\n";
-            for (size_t i = 0; i + 1 < provs.size(); ++i) {
-                ++r.conflicts;
-                report["datConflicts"].push_back({ {"name", stem + ".tbl"}, {"lang", lang}, {"fromMod", provs[i].mod}, {"byMod", win.mod} });
-                log += "[modkit] CONFLICT table " + sub + "/" + stem + ".tbl: " + provs[i].mod + " -> " + win.mod + " [winner,整文件]\n";
-            }
+            if (!writeAll(fs::path(paths.cacheDir) / sub / (o.name + ".tbl"), bytes)) { log += "[modkit] table_replace copy FAIL " + sub + "/" + o.name + "\n"; addLangErr(errs, "table 替换 \"" + o.name + "\"", { win.mod }, "写缓存失败", o.lang); continue; }
+            if (counted.insert(o.name).second) ++r.tbls;
+            noteWholeOut(report["tableReplace"], repIdx, o);
+            const bool over = noteWholeConflicts(o, o.name + ".tbl", "table " + sub + "/" + o.name + ".tbl");
+            log += "[modkit] table_replace " + sub + "/" + o.name + ".tbl <- " + win.mod + (over ? " (覆盖其它)" : "") + "\n";
         }
+        flushLangErrs(errs);
     }
 
     {
@@ -1217,6 +1393,26 @@ RunResult Run(const Paths& paths, bool force) {
                 }
                 provs = std::move(good);
                 if (provs.empty()) continue;
+            }
+            if (provs.size() > 1 && rel.size() > 4 && rel.compare(rel.size() - 4, 4, ".dds") == 0) {
+                std::vector<uint8_t> composed;
+                std::string why;
+                if (composeDds(paths.pacSteamDir, rel, provs, composed, why)) {
+                    if (writeAll(fs::path(paths.cacheDir) / fs::path(rel), composed)) {
+                        ++r.assets;
+                        nlohmann::json mods = nlohmann::json::array();
+                        std::string names;
+                        for (const auto& p : provs) {
+                            mods.push_back(p.first);
+                            names += (names.empty() ? "" : " + ") + p.first;
+                        }
+                        report["assets"].push_back({ {"name", rel}, {"winner", provs.back().first}, {"composed", true}, {"mods", mods} });
+                        log += "[modkit] asset " + rel + " <- " + names + "(按块合成)\n";
+                        continue;
+                    }
+                    why = "写缓存失败";
+                }
+                log += "[modkit] asset " + rel + " 不能按块合成(" + why + "),照旧整文件\n";
             }
             const auto& win = provs.back();
             fs::path dst = fs::path(paths.cacheDir) / (rel.rfind("vfx/", 0) == 0 ? fs::path(u8tow(rel)) : fs::path(rel));

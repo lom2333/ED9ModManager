@@ -18,16 +18,112 @@ typedef uint64_t (__fastcall* FindFile_t)(void* mgr, const char* name, uint64_t*
 static Open_t o_Open = nullptr;
 static FindFile_t o_FindFile = nullptr;
 
-static char g_lang[8] = {};
+typedef uint32_t (__fastcall* Rewrite_t)(void* fpm, void* out, uint16_t* ioFlags, const char* src, bool backslashToSlash);
+static Rewrite_t g_rewrite = nullptr;
+static void**    g_ppFpm   = nullptr;
+static uint8_t** g_ppSave  = nullptr;
+static uint32_t  g_langOff = 0;
+static bool      g_koIsKo  = true;
+static volatile LONG g_sniff = 0;
 
-static void detect_lang(const char* name) {
-    if (g_lang[0] != 0 || !name) return;
-    const char* l = nullptr;
-    if      (strstr(name, "_sc/")) l = "sc";
-    else if (strstr(name, "_tc/")) l = "tc";
-    else if (strstr(name, "_kr/")) l = "kr";
-    if (l) {
-        g_lang[0] = l[0]; g_lang[1] = l[1]; g_lang[2] = 0;
+static bool IsLangCode(const char* s, size_t n) {
+    static const char* const k[] = { "sc", "tc", "ko", "kr", "en", "de", "fr", "es" };
+    for (const char* c : k) if (n == 2 && s[0] == c[0] && s[1] == c[1]) return true;
+    return false;
+}
+
+static bool CodeFromEngineName(const char* n, char code[4]) {
+    const char* rest = nullptr;
+    if (strncmp(n, "table", 5) == 0) rest = n + 5;
+    else if (strncmp(n, "script", 6) == 0) rest = n + 6;
+    else return false;
+    if (rest[0] == '/') { code[0] = 'j'; code[1] = 'p'; code[2] = 0; return true; }
+    if (rest[0] != '_') return false;
+    const char* slash = strchr(rest + 1, '/');
+    if (slash == nullptr || !IsLangCode(rest + 1, (size_t)(slash - rest - 1))) return false;
+    code[0] = rest[1]; code[1] = rest[2]; code[2] = 0;
+    return true;
+}
+
+static bool CurrentLang(const char* name, unsigned mode, unsigned flags, unsigned short p5, char code[4]) {
+    if (g_rewrite != nullptr && g_ppFpm != nullptr) {
+        void* fpm = *g_ppFpm;
+        if (fpm == nullptr || (flags & 4) != 0 || mode == 1) { code[0] = 'j'; code[1] = 'p'; code[2] = 0; return true; }
+        struct { char s[0x200]; uint32_t len; } out = {};
+        uint16_t f = p5;
+        g_rewrite(fpm, &out, &f, name, false);
+        out.s[sizeof(out.s) - 1] = 0;
+        if (CodeFromEngineName(out.s, code)) return true;
+    }
+    if (g_ppSave != nullptr && *g_ppSave != nullptr) {
+        static const char* const kCodes[8] = { "jp", "en", "de", "fr", "es", "tc", "sc", "ko" };
+        uint8_t idx = 0;
+        if (g_api->safe_read(*g_ppSave + g_langOff, &idx, 1) == 1 && idx < 8) {
+            const char* c = (idx == 7 && !g_koIsKo) ? "kr" : kCodes[idx];
+            code[0] = c[0]; code[1] = c[1]; code[2] = 0;
+            return true;
+        }
+    }
+    const LONG s = g_sniff;
+    if (s != 0) { memcpy(code, &s, 4); code[3] = 0; return true; }
+    return false;
+}
+
+static void SniffLang(const char* name) {
+    if (g_sniff != 0 || name == nullptr || (g_rewrite != nullptr && g_ppFpm != nullptr) || g_ppSave != nullptr) return;
+    char code[4] = {};
+    if (CodeFromEngineName(name, code) && !(code[0] == 'j' && code[1] == 'p')) {
+        LONG v = 0; memcpy(&v, code, 4);
+        InterlockedExchange(&g_sniff, v);
+    }
+}
+
+static uintptr_t FindUnique(uintptr_t from, uintptr_t to, const int16_t* pat, size_t n) {
+    uintptr_t hit = 0;
+    int count = 0;
+    for (uintptr_t p = from; p + n <= to; ++p) {
+        const uint8_t* q = reinterpret_cast<const uint8_t*>(p);
+        if (q[0] != (uint8_t)pat[0]) continue;
+        size_t i = 1;
+        for (; i < n; ++i) if (pat[i] >= 0 && q[i] != (uint8_t)pat[i]) break;
+        if (i == n) { hit = p; if (++count > 1) return 0; }
+    }
+    return count == 1 ? hit : 0;
+}
+static bool TextRange(uintptr_t base, uintptr_t& beg, uintptr_t& end) {
+    const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
+    if (dos->e_magic != IMAGE_DOS_SIGNATURE) return false;
+    const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(base + dos->e_lfanew);
+    if (nt->Signature != IMAGE_NT_SIGNATURE) return false;
+    const IMAGE_SECTION_HEADER* s = IMAGE_FIRST_SECTION(nt);
+    for (WORD i = 0; i < nt->FileHeader.NumberOfSections; ++i, ++s)
+        if ((s->Characteristics & IMAGE_SCN_MEM_EXECUTE) != 0 && s->Misc.VirtualSize != 0) {
+            beg = base + s->VirtualAddress; end = beg + s->Misc.VirtualSize; return true;
+        }
+    return false;
+}
+
+static void ResolveLangSources(void* open) {
+    static const int16_t kRw[] = { 0x48, 0x8B, 0x0D, -1, -1, -1, -1, 0x48, 0x85, 0xC9, 0x74, -1, 0xC6, 0x44, 0x24, 0x20, 0x00,
+                                   0x4C, 0x8D, 0x8D, -1, -1, -1, -1, 0x4C, 0x8D, 0x85, -1, -1, -1, -1, 0x48, 0x8D, 0x54, 0x24, 0x40, 0xE8 };
+    const uintptr_t o = reinterpret_cast<uintptr_t>(open);
+    if (const uintptr_t h = FindUnique(o, o + 0x400, kRw, sizeof(kRw) / sizeof(kRw[0]))) {
+        int32_t d1 = 0, d2 = 0;
+        memcpy(&d1, reinterpret_cast<const void*>(h + 3), 4);
+        memcpy(&d2, reinterpret_cast<const void*>(h + 0x25), 4);
+        g_ppFpm = reinterpret_cast<void**>(h + 7 + d1);
+        g_rewrite = reinterpret_cast<Rewrite_t>(h + 0x29 + d2);
+    }
+    static const int16_t kLang[] = { 0x48, 0x8B, 0x05, -1, -1, -1, -1, 0x0F, 0xB6, 0x90, -1, -1, -1, -1, 0x0F, 0xB6, 0x98, -1, -1, -1, -1 };
+    uintptr_t beg = 0, end = 0;
+    if (TextRange(g_base, beg, end)) {
+        if (const uintptr_t h = FindUnique(beg, end, kLang, sizeof(kLang) / sizeof(kLang[0]))) {
+            int32_t d = 0; uint32_t off = 0;
+            memcpy(&d, reinterpret_cast<const void*>(h + 3), 4);
+            memcpy(&off, reinterpret_cast<const void*>(h + 10), 4);
+            g_ppSave = reinterpret_cast<uint8_t**>(h + 7 + d);
+            g_langOff = off;
+        }
     }
 }
 
@@ -48,7 +144,7 @@ static void TraceReq(const char* tag, const char* name, const char* result) {
 }
 
 static uint64_t __fastcall hk_FindFile(void* mgr, const char* name, uint64_t* off, uint64_t* sz) {
-    detect_lang(name);
+    SniffLang(name);
     const uint64_t r = o_FindFile(mgr, name, off, sz);
     TraceReq("FindFile", name, r ? "  -> 命中 pac" : "  -> pac 里没有");
     return r;
@@ -99,17 +195,19 @@ static void* __fastcall hk_Open(void* self, const char* name, unsigned p3, unsig
         char langBuf[300], neuBuf[300];
         const char* langLookup = nullptr;
         const char* neuLookup = name;
-        if (strncmp(name, "table/", 6) == 0) {
-            if (g_lang[0]) { _snprintf_s(langBuf, sizeof(langBuf), _TRUNCATE, "table_%s/%s", g_lang, name + 6); langLookup = langBuf; }
-        } else if (strncmp(name, "script/scena/", 13) == 0) {
-            const char* rest = name + 13;
-            _snprintf_s(neuBuf, sizeof(neuBuf), _TRUNCATE, "script/%s", rest); neuLookup = neuBuf;
-            if (g_lang[0]) { _snprintf_s(langBuf, sizeof(langBuf), _TRUNCATE, "script_%s/%s", g_lang, rest); langLookup = langBuf; }
-        } else if (strncmp(name, "script/ai/", 10) == 0) {
-            if (g_lang[0]) { _snprintf_s(langBuf, sizeof(langBuf), _TRUNCATE, "script_%s/ai/%s", g_lang, name + 10); langLookup = langBuf; }
-        } else if (strncmp(name, "script/ani/", 11) == 0) {
-            if (g_lang[0]) { _snprintf_s(langBuf, sizeof(langBuf), _TRUNCATE, "script_%s/ani/%s", g_lang, name + 11); langLookup = langBuf; }
+        const bool isTable = strncmp(name, "table/", 6) == 0;
+        const bool isScena = strncmp(name, "script/scena/", 13) == 0;
+        const bool isAi    = strncmp(name, "script/ai/", 10) == 0;
+        const bool isAni   = strncmp(name, "script/ani/", 11) == 0;
+        char lang[4] = {};
+        if ((isTable || isScena || isAi || isAni) && CurrentLang(name, p3, p4, p5, lang)) {
+            if (isTable)      _snprintf_s(langBuf, sizeof(langBuf), _TRUNCATE, "table_%s/%s", lang, name + 6);
+            else if (isScena) _snprintf_s(langBuf, sizeof(langBuf), _TRUNCATE, "script_%s/%s", lang, name + 13);
+            else if (isAi)    _snprintf_s(langBuf, sizeof(langBuf), _TRUNCATE, "script_%s/ai/%s", lang, name + 10);
+            else              _snprintf_s(langBuf, sizeof(langBuf), _TRUNCATE, "script_%s/ani/%s", lang, name + 11);
+            langLookup = langBuf;
         }
+        if (isScena) { _snprintf_s(neuBuf, sizeof(neuBuf), _TRUNCATE, "script/%s", name + 13); neuLookup = neuBuf; }
         void* buf = nullptr;
         const char* hitName = langLookup;
         if (langLookup) { buf = load_redirect(langLookup, &sz); }
@@ -182,6 +280,13 @@ extern "C" __declspec(dllexport) void Plugin_Load(const Ed9Api* api) {
         api->log(b);
         return;
     }
+    ResolveLangSources(open);
+    { wchar_t ko[MAX_PATH];
+      _snwprintf_s(ko, MAX_PATH, _TRUNCATE, L"%s\\pac\\steam\\table_ko.pac", exe);
+      g_koIsKo = GetFileAttributesW(ko) != INVALID_FILE_ATTRIBUTES; }
+    if (g_rewrite == nullptr)
+        api->log(g_ppSave != nullptr ? "[SceneRedirect] 没找到游戏的路径改写函数,当前语言改为读游戏设置"
+                                     : "[SceneRedirect] 没找到游戏的路径改写函数和语言设置,当前语言改为从读到的文件名推断");
     api->install_hook(open,     (void*)hk_Open,     (void**)&o_Open);
     api->install_hook(findfile, (void*)hk_FindFile, (void**)&o_FindFile);
     api->log("[SceneRedirect] 已按当前游戏版本自适应装载");

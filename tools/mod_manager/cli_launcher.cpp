@@ -15,6 +15,10 @@ int wmain() {
     if (!cl.empty() && cl[0] == L'"') { size_t q = cl.find(L'"', 1); i = (q == std::wstring::npos ? cl.size() : q + 1); }
     else { size_t sp = cl.find(L' '); i = (sp == std::wstring::npos ? cl.size() : sp); }
     std::wstring rest = (i < cl.size() ? cl.substr(i) : std::wstring());
+    if (rest.find_first_not_of(L" \t") == std::wstring::npos) {
+        DWORD pids[2];
+        if (GetConsoleProcessList(pids, 2) != 1) rest = L" help";
+    }
     std::wstring full = L"\"" + target + L"\"" + rest;
 
     STARTUPINFOW si{}; si.cb = sizeof si;
