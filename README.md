@@ -1,5 +1,73 @@
 # ED9ModManager
 
+**空之轨迹 the 1st / the 2nd 的 MOD 管理器 + MOD 加载器**<br>
+**Mod Manager & Mod Loader for Trails in the Sky 1st Chapter / 2nd Chapter**
+
+[下载最新版 / Download](https://github.com/lom2333/ED9ModManager/releases/latest) · [English](#english)
+
+给《英雄传说 空之轨迹 the 1st》《空之轨迹 the 2nd》(空轨 1 / 空轨 2,也就是 FC / SC 的重制版;Steam PC 版)用的 MOD 管理器和 MOD 加载器。把 MOD 放进文件夹、勾选、保存,进游戏就生效;多个 MOD 改到同一张表、同一个场景或同一个脚本时会自动合并。
+
+## 安装和使用
+
+1. 到 [Releases](https://github.com/lom2333/ED9ModManager/releases/latest) 下载最新的 `Ed9ModManager-V*.zip`。
+2. 解压到游戏目录(`sora_1st.exe` 或 `sora_2nd.exe` 所在的文件夹)。游戏目录里会多出 `xinput1_4.dll`、`ED9Loader\`、`Mod\`。
+3. 把 MOD 放进 `Mod\`:文件夹或压缩包(zip / 7z / rar)都行,压缩包不用解压。
+4. 运行 `ED9Loader\ED9ModManager.exe`,确认「游戏目录」是游戏根目录,勾选要用的 MOD,点「保存」。
+5. 照常启动游戏。
+
+- 同一个包同时支持 the 1st 和 the 2nd,按游戏目录自动识别。
+- 多个 MOD 冲突时,列表里靠下的优先;管理器会标出冲突,用 ▲▼ 调顺序。
+- MOD 走重定向加载,不覆盖游戏原文件。不想用了,删掉游戏目录里的 `xinput1_4.dll` 即可。
+- 界面语言:简体中文、繁體中文、English、日本語、한국어、Deutsch、Français、Español。
+- 管理器里可以检查并安装更新。
+
+## 常见问题
+
+**空轨 2(空之轨迹 the 2nd)有 MOD 管理器吗?**<br>
+有,就是这个。the 1st 和 the 2nd 用同一个包。
+
+**支持哪个版本的游戏?**<br>
+Steam 的 PC 版(Windows 64 位)。主机版不支持。
+
+**游戏更新之后还能用吗?**<br>
+加载器带自我修复,游戏更新后会自己重新定位,一般不用等新版;还是不行的话,在管理器里检查更新,或到 Releases 下载新版。
+
+**想自己做 MOD,从哪看起?**<br>
+发布包里的 `Mod\2ndMod示例` 是一个可以照着改的例子;管理器自带 TBL / DAT 和 JSON 互转、DDS 加解密、PAC 浏览。
+
+## English
+
+**ED9ModManager** is a mod manager and mod loader for the PC (Steam) versions of *The Legend of Heroes: Trails in the Sky 1st Chapter* and *Trails in the Sky 2nd Chapter* (空の軌跡 the 1st / the 2nd). Drop mods into a folder, tick them, click Save, and play. When several mods edit the same table, scene or script, their changes are merged automatically.
+
+**Install**
+
+1. Download the latest `Ed9ModManager-V*.zip` from [Releases](https://github.com/lom2333/ED9ModManager/releases/latest).
+2. Extract it into the game folder (the one containing `sora_1st.exe` or `sora_2nd.exe`). You will get `xinput1_4.dll`, `ED9Loader\` and `Mod\` there.
+3. Put mods into `Mod\`, as folders or as archives (zip / 7z / rar, no need to extract).
+4. Run `ED9Loader\ED9ModManager.exe`, make sure the game folder is set, tick the mods you want, and click **Save**.
+5. Start the game as usual.
+
+- One package works for both 1st Chapter and 2nd Chapter; the game is detected from the folder.
+- On conflicts, mods lower in the list win; the manager marks conflicts and lets you reorder them.
+- Mods are loaded through redirection and never overwrite the original game files. To stop using it, delete `xinput1_4.dll` from the game folder.
+- Interface languages: English, 简体中文, 繁體中文, 日本語, 한국어, Deutsch, Français, Español.
+- The manager can check for and install updates.
+
+**FAQ**
+
+*Is there a mod manager for Trails in the Sky 2nd Chapter?*<br>
+Yes, this one. The same package also supports 1st Chapter.
+
+*Which versions of the game are supported?*<br>
+The Steam PC version (Windows x64). Console versions are not supported.
+
+*Does it keep working after a game update?*<br>
+The loader re-locates what it needs after an update, so it usually keeps working. If it does not, update from inside the manager or download the latest release.
+
+---
+
+## 开发者 / For developers
+
 *A modding toolchain for the ED9/fdk engine builds of «The Legend of Heroes: Trails in the Sky the 1st» and «the 2nd» (空の軌跡 the 1st / the 2nd).*
 
 面向空之轨迹 the 1st / the 2nd（ED9/fdk 引擎，x64）的 Mod 工具链：一个原生插件加载框架 + 一个图形化 Mod 管理/合并器 + 若干示例插件。全部为 C++20/CMake，Windows 平台。
