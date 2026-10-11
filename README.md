@@ -1,4 +1,4 @@
-# ED9ModManager
+# Sky Mod Manager
 
 **空之轨迹 the 1st / the 2nd 的 MOD 管理器 + MOD 加载器**<br>
 **Mod Manager & Mod Loader for Trails in the Sky 1st Chapter / 2nd Chapter**
