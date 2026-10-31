@@ -126,6 +126,8 @@ static uintptr_t __fastcall hk_AreaProc(uintptr_t areaMgr) {
 
 static const uint32_t LIST_CAP = 64;
 static std::set<void*> g_enlarged;
+static uint32_t g_offListArr = 0;
+static uint32_t g_offListCnt = 0;
 
 static uint8_t* find_unique(uint8_t* base, size_t len, const uint8_t* pat, size_t plen) {
     uint8_t* hit = nullptr;
@@ -134,6 +136,37 @@ static uint8_t* find_unique(uint8_t* base, size_t len, const uint8_t* pat, size_
         if (hit != nullptr) return nullptr;
         hit = base + i;
     }
+    return hit;
+}
+
+static bool has_bytes(const uint8_t* base, size_t len, const uint8_t* pat, size_t plen) {
+    for (size_t i = 0; i + plen <= len; ++i) {
+        if (memcmp(base + i, pat, plen) == 0) return true;
+    }
+    return false;
+}
+
+static uint8_t* find_list_offsets(uint8_t* fn, size_t len, uint32_t* arr, uint32_t* cnt) {
+    uint8_t* hit = nullptr;
+    uint32_t c = 0;
+    for (size_t i = 0; i + 7 <= len; ++i) {
+        if (fn[i] != 0x83 || fn[i + 1] != 0xB9 || fn[i + 6] != 0x08) continue;
+        uint32_t d = 0;
+        memcpy(&d, fn + i + 2, 4);
+        if (d < 0x10 || d >= 0x1000) continue;
+        if (hit != nullptr) return nullptr;
+        hit = fn + i;
+        c = d;
+    }
+    if (hit == nullptr) return nullptr;
+    const uint32_t a = c - 8;
+    uint8_t movArr[7] = {0x4C, 0x8B, 0x8B};
+    uint8_t movCnt[6] = {0x8B, 0x83};
+    memcpy(movArr + 3, &a, 4);
+    memcpy(movCnt + 2, &c, 4);
+    if (!has_bytes(fn, len, movArr, sizeof(movArr)) || !has_bytes(fn, len, movCnt, sizeof(movCnt))) return nullptr;
+    *arr = a;
+    *cnt = c;
     return hit;
 }
 
@@ -146,9 +179,9 @@ static void* eng_alloc(size_t n) {
 }
 
 static void ensure_big_list(void* mgr) {
-    if (!mgr || g_enlarged.count(mgr)) return;
-    void** pArr = (void**)((char*)mgr + 0x160);
-    uint32_t* pCount = (uint32_t*)((char*)mgr + 0x168);
+    if (!mgr || g_offListArr == 0 || g_offListCnt == 0 || g_enlarged.count(mgr)) return;
+    void** pArr = (void**)((char*)mgr + g_offListArr);
+    uint32_t* pCount = (uint32_t*)((char*)mgr + g_offListCnt);
     void* oldArr = *pArr;
     if (!oldArr) return;
     void* newArr = eng_alloc((size_t)LIST_CAP * 8);
@@ -238,13 +271,15 @@ extern "C" __declspec(dllexport) void Plugin_Load(const Ed9Api* api) {
     g_memmgr = (mm_vt != nullptr && api->find_instance != nullptr) ? api->find_instance(mm_vt) : nullptr;
 
     if (api->abi_version >= 3 && api->safe_write != nullptr) {
-        static const uint8_t kCap1[] = { 0x83, 0xB9, 0x68, 0x01, 0x00, 0x00, 0x08 };
         static const uint8_t kCap2[] = { 0x83, 0xF8, 0x08 };
         uint8_t* fn = (uint8_t*)loadScript;
-        uint8_t* c1 = find_unique(fn, 0x100, kCap1, sizeof(kCap1));
+        uint32_t arr = 0, cnt = 0;
+        uint8_t* c1 = find_list_offsets(fn, 0x100, &arr, &cnt);
         uint8_t* c2 = find_unique(fn, 0x100, kCap2, sizeof(kCap2));
         uint8_t cap = (uint8_t)LIST_CAP;
         if (c1 != nullptr && c2 != nullptr) {
+            g_offListArr = arr;
+            g_offListCnt = cnt;
             api->safe_write(c1 + 6, &cap, 1);
             api->safe_write(c2 + 2, &cap, 1);
         } else {

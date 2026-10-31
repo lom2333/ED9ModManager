@@ -48,7 +48,7 @@ using ojson = nlohmann::ordered_json;
 
 static float g_dpiScale = 1.0f;
 
-static const char* kVersion = "1.1.2";
+static const char* kVersion = "1.1.3";
 static const wchar_t* kUpdateHost = L"api.github.com";
 static const wchar_t* kUpdatePath = L"/repos/lom2333/ED9ModManager/releases/latest";
 
@@ -2209,6 +2209,9 @@ static void drawSettings(App& a) {
 struct ChangeEntry { const char* ver; const char* date; std::vector<const char*> items; };
 static const std::vector<ChangeEntry>& changelog() {
     static const std::vector<ChangeEntry> log = {
+        { "1.1.3", "2026-10-31", {
+            "修复30号的更新导致内置修改器和MOD加载器插件部分功能失效的问题。",
+        } },
         { "1.1.2", "2026-10-05", {
             "修正了当资源又多个块合成让管理器误以为是互相冲突的问题",
             "加载器现已支持2nd所有语言",

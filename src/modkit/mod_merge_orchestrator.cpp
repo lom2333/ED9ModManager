@@ -932,6 +932,7 @@ RunResult Run(const Paths& paths, bool force) {
             { "camp_status", false },
             { "camp_costume", false },
             { "camp_top", false },
+            { "camp_status_list", false },
             { "break_stat_cap", false },
             { "clone_arts", false },
             { "party_support", false },
